@@ -5,7 +5,7 @@ let adminCourses = [];
 const CLIENT_ID = '740588046540-npg0crodtcuinveu6bua9rd6c3hb2s1m.apps.googleusercontent.com';
 const LOGS_SPREADSHEET_ID = '1AvVrBRt4_3GJTVMmFph6UsUsplV9h8jXU93n1ezbMME';
 const LOGS_STORAGE_KEY = 'attendance_logs';
-const BRAIN_URL = 'https://script.google.com/macros/s/AKfycbydXFkdY7P1QJlfBYMTsFYIpnsNEEjZzZC7BZ9KD03LXCRPqz6QC1SEISi3SCL1zInJEA/exec';
+const BRAIN_URL = 'https://script.google.com/macros/s/AKfycbyFj_nxr4empI_qBaDw69CZoonukHErbLOf93rOnwoxbqFZiVPFpgSmfKsvGbu337W0WA/exec';
 
 // App state
 let courseData = {};
@@ -2276,6 +2276,16 @@ function showCourseEditorDialog(courseName, courseData = null) {
             </div>
         </div>
 
+        ${(!isNew && isGlobalAdmin) ? `
+        <hr style="border:0; border-top:1px solid #eee; margin:15px 0;">
+        <div class="form-group" style="align-items:center;">
+            <label class="dialog-label-fixed"><i class="fa-solid fa-box-archive"></i> Archive</label>
+            <label style="display:flex; align-items:center; gap:8px; cursor:pointer; flex-grow:1;">
+                <input type="checkbox" id="edit-c-archived" ${data.archived ? 'checked' : ''} style="width:16px;height:16px;cursor:pointer;accent-color:var(--warning-color);">
+                <span style="font-size:0.9em; opacity:0.7;">Hide from active courses</span>
+            </label>
+        </div>` : ''}
+
     </div>
     <div class="dialog-actions">
         ${(!isNew && isGlobalAdmin) ? '<button id="delete-course-btn" class="btn-red" style="margin-right:auto;"><i class="fa-solid fa-trash"></i> Delete</button>' : ''}
@@ -2477,6 +2487,7 @@ function showCourseEditorDialog(courseName, courseData = null) {
             availableSections: currentSections.join(', '),
             adminEmails: isGlobalAdmin ? finalAdminString : (data.adminEmails || '')
         };
+        if (isGlobalAdmin && !isNew) payload.archived = document.getElementById('edit-c-archived').checked;
 
         try {
             const res = await callWebApp('saveCourseSettings_Admin', payload, 'POST');
@@ -4067,6 +4078,23 @@ async function onSuccessfulAuth(isRestore = false) {
                     courseIDMap[courseName] = metadata.eisId;
                 }
             });
+
+            // Strip archived courses from the official available list so they
+            // behave like guest courses (button appears on visit, gone when leaving)
+            availableCourses = availableCourses.filter(c => !courseInfoMap[c]?.archived);
+            Object.keys(courseDictionary).forEach(c => {
+                if (courseInfoMap[c]?.archived) delete courseDictionary[c];
+            });
+
+            // If the boot-selected course is archived, treat it as a guest visit
+            // (global admin) or fall back to first active course (everyone else)
+            if (currentCourse && courseInfoMap[currentCourse]?.archived) {
+                if (isGlobalAdmin) {
+                    guestCourse = currentCourse;
+                } else {
+                    currentCourse = availableCourses[0] || null;
+                }
+            }
         }
 
         // --- PHASE 2: SHOW THE APP ---
@@ -6616,8 +6644,8 @@ async function handleManualRefresh(buttonId) {
             const fetchedCourseDict = bootData.courses;
 
             if (fetchedCourseDict && typeof fetchedCourseDict === 'object') {
-                // Update the global availableCourses list
-                availableCourses = Object.keys(fetchedCourseDict);
+                // Update the global availableCourses list (exclude archived)
+                availableCourses = Object.keys(fetchedCourseDict).filter(c => !courseInfoMap[c]?.archived);
 
                 // Update the global course dictionary
                 const filteredDict = {};
@@ -7231,7 +7259,7 @@ function populateCourseDropdown() {
         courseButtonsContainer.style.display = 'flex'; // Show it on other tabs
     }
     courseButtonsContainer.innerHTML = '';
-    let coursesToDisplay = availableCourses;
+    let coursesToDisplay = availableCourses.filter(c => !courseInfoMap[c]?.archived || c === guestCourse);
 
     if (!isAdmin && currentUser) {
         const studentNameNormalised = normalizeName(currentUser.name);
@@ -7371,20 +7399,18 @@ function updateOnlineStatus() {
     const statusIcon = syncStatus.querySelector('i, svg');
 
     if (isOnline) {
-        syncText.textContent = 'Online';
-        syncStatus.setAttribute('class', 'sync-status online');
         syncBtn.disabled = !isSignedIn || isSyncing;
+        if (pendingChanges && !isSyncing) {
+            syncText.textContent = 'Pending sync...';
+            syncStatus.setAttribute('class', 'sync-status waiting');
+        } else if (!isSyncing) {
+            syncText.textContent = 'Online';
+            syncStatus.setAttribute('class', 'sync-status online');
+        }
     } else {
-        syncText.textContent = 'Offline';
-        syncStatus.setAttribute('class', 'sync-status offline');
+        syncText.textContent = pendingChanges ? 'Pending (offline)' : 'Offline';
+        syncStatus.setAttribute('class', pendingChanges ? 'sync-status waiting' : 'sync-status offline');
         syncBtn.disabled = true;
-    }
-
-    // After a successful sync, we might set a "success" status.
-    // This ensures that when the status is updated again, it reverts to the correct online/offline state.
-    if (pendingChanges && isOnline) {
-        syncText.textContent = autoSyncEnabled ? 'Pending auto-sync' : 'Pending sync';
-        syncStatus.setAttribute('class', 'sync-status waiting');
     }
 }
 
@@ -7433,9 +7459,21 @@ async function syncData() {
 
             // 2. PULL SERVER
             let serverLogs = [];
+            let serverTombstoneMap = new Map();
             try {
                 if (isAdmin) {
-                    serverLogs = await callWebApp('getCourseLogs_Admin', { courseName: currentCourse }, 'POST');
+                    const response = await callWebApp('getCourseLogs_Admin', { courseName: currentCourse }, 'POST');
+                    if (response && response.logs) {
+                        serverLogs = response.logs;
+                        if (response.tombstones && Array.isArray(response.tombstones)) {
+                            response.tombstones.forEach(t => {
+                                if (typeof t === 'object') serverTombstoneMap.set(t.id, t.deletedAt);
+                                else serverTombstoneMap.set(t, Date.now());
+                            });
+                        }
+                    } else {
+                        serverLogs = Array.isArray(response) ? response : [];
+                    }
                 } else {
                     serverLogs = await callWebApp('getStudentLogs', { courseName: currentCourse }, 'POST');
                 }
@@ -7444,7 +7482,7 @@ async function syncData() {
             }
 
             // 3. MERGE
-            const mergedLogs = mergeLogs(serverLogs, localData.logs, localData.tombstones, new Set());
+            const mergedLogs = mergeLogs(serverLogs, localData.logs, localData.tombstones, serverTombstoneMap);
 
             // Update state immediately so UI reflects merge
             courseData[currentCourse] = {
@@ -7736,12 +7774,10 @@ function saveAndMarkChanges(courseName) {
     saveCourseToLocalStorage(courseName);
     pendingChanges = true;
 
-    // Just update the UI to show pending changes.
-    // The main auto-sync interval will handle the rest.
-    if (isOnline && isSignedIn) {
-        if (!isSyncing) { // Only update status if not already syncing
-            updateSyncStatus("Pending sync...", "waiting");
-        }
+    if (!isOnline) {
+        updateSyncStatus("Pending (offline)", "waiting");
+    } else if (isSignedIn && !isSyncing) {
+        updateSyncStatus("Pending sync...", "waiting");
     }
 }
 
@@ -7776,17 +7812,17 @@ async function syncLogsWithSheet() {
 }
 
 async function syncViaBackendAPI() {
+    const ownSync = !isSyncing; // true when called directly (not from autoSyncData)
     try {
         const logsToSync = courseData[currentCourse]?.logs || [];
-        // Capture tombstones to send to server
         const tombstonesToSync = Array.from(courseData[currentCourse]?.tombstones || []);
 
         if (logsToSync.length === 0 && tombstonesToSync.length === 0) {
-            console.log('No logs or tombstones to sync');
             return;
         }
 
-        // Call backend to sync logs AND tombstones
+        if (ownSync) updateSyncStatus("Syncing...", "syncing");
+
         const result = await callWebApp('syncCourseLogs_Admin', {
             courseName: currentCourse,
             logs: logsToSync,
@@ -7797,12 +7833,19 @@ async function syncViaBackendAPI() {
             pendingChanges = false;
             lastSyncTime = Date.now();
             saveCourseToLocalStorage(currentCourse);
+            if (ownSync) {
+                const t = new Date();
+                const time = t.getHours().toString().padStart(2, '0') + ':' + t.getMinutes().toString().padStart(2, '0');
+                updateSyncStatus(`Synced (${time})`, "success");
+                setTimeout(() => { if (!pendingChanges) updateSyncStatus("Online", "online"); }, 3000);
+            }
         } else {
             throw new Error(result?.message || 'Sync failed');
         }
 
     } catch (error) {
         console.error('Backend sync error:', error);
+        if (ownSync) updateSyncStatus("Sync failed!", "error");
         throw error;
     }
 }
@@ -10366,12 +10409,16 @@ function renderCoursesInSettings(courseInfo, filterText = '') {
         // Build HTML
         const card = document.createElement('div');
         card.setAttribute('class', 'modern-course-card');
+        if (data.archived) card.style.opacity = '0.55';
         card.innerHTML = `
-            <div class="card-color-strip ${stripClass}"></div>
+            <div class="card-color-strip ${data.archived ? 'strip-default' : stripClass}"></div>
             <div class="card-body">
                 <div class="card-title-row">
                     <div class="card-course-name">${escapeHtml(courseName.replace(/_/g, ' '))}</div>
-                    ${data.eisId ? `<span class="card-eis-badge">#${escapeHtml(data.eisId)}</span>` : ''}
+                    <div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;">
+                        ${data.archived ? `<span class="card-eis-badge" style="background:#f0ede8;color:#8c6a3a;"><i class="fa-solid fa-box-archive"></i> Archived</span>` : ''}
+                        ${data.eisId ? `<span class="card-eis-badge">#${escapeHtml(data.eisId)}</span>` : ''}
+                    </div>
                 </div>
                 <div class="card-meta-row">
                     <div class="card-meta-item"><i class="fa-regular fa-clock"></i> ${escapeHtml(data.defaultHours || 0)}h</div>
@@ -11054,6 +11101,9 @@ function populateCourseButtons() {
         coursesToDisplay = [...coursesToDisplay, guestCourse];
     }
 
+    // Filter out archived courses, but keep the guestCourse if it's an archived one being visited
+    coursesToDisplay = coursesToDisplay.filter(c => !courseInfoMap[c]?.archived || c === guestCourse);
+
     coursesToDisplay.forEach(course => {
         const button = document.createElement('div');
         button.setAttribute('class', 'course-button' + (currentCourse === course ? ' active' : ''));
@@ -11063,7 +11113,6 @@ function populateCourseButtons() {
             button.classList.add('btn-orange');
         }
 
-        // Removed the badge count logic here
         button.innerHTML = `<i class="fa-solid fa-table-list"></i>&nbsp; ${escapeHtml(course.replace(/_/g, ' '))}`;
         button.addEventListener('click', () => selectCourseButton(course));
         courseButtonsContainer.appendChild(button);
