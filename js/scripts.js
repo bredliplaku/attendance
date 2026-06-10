@@ -5,7 +5,7 @@ let adminCourses = [];
 const CLIENT_ID = '740588046540-npg0crodtcuinveu6bua9rd6c3hb2s1m.apps.googleusercontent.com';
 const LOGS_SPREADSHEET_ID = '1AvVrBRt4_3GJTVMmFph6UsUsplV9h8jXU93n1ezbMME';
 const LOGS_STORAGE_KEY = 'attendance_logs';
-const BRAIN_URL = 'https://script.google.com/macros/s/AKfycbyFj_nxr4empI_qBaDw69CZoonukHErbLOf93rOnwoxbqFZiVPFpgSmfKsvGbu337W0WA/exec';
+const BRAIN_URL = 'https://script.google.com/macros/s/AKfycbz1XUv03s45Jr5q_driL53cYfS1ordbg4lR_sKLGkaDaI9MVtLCJTTK73oRz__UNIKlHQ/exec';
 
 // App state
 let courseData = {};
@@ -1394,6 +1394,33 @@ window.buildUIDToPrimaryUidMap = function () {
 }
 
 /**
+ * Converts a 4-byte NFC UID ("9a:0b:b6:88") to the IT department's decimal
+ * ID format ("11930522") by reversing the first 3 bytes and reading them as
+ * a big-endian hex number. Anything that isn't exactly 4 colon-separated hex
+ * byte pairs (already-converted IDs, manual entries, other UID lengths) is
+ * returned unchanged.
+ */
+function convertUidToExternalId(rawUid) {
+    if (typeof rawUid !== 'string') return rawUid;
+    const bytes = rawUid.split(':');
+    if (bytes.length !== 4 || !bytes.slice(0, 3).every(b => /^[0-9a-fA-F]{2}$/.test(b))) {
+        return rawUid;
+    }
+    const decimal = parseInt(bytes[2] + bytes[1] + bytes[0], 16);
+    return isNaN(decimal) ? rawUid : String(decimal);
+}
+
+// Dual lookup: matches old rows (raw-UID uids) and new rows (converted-ID uids)
+function lookupPrimaryUid(rawUid) {
+    return uidToPrimaryUidMap[rawUid] || uidToPrimaryUidMap[convertUidToExternalId(rawUid)];
+}
+
+// Cross-format equality for duplicate detection
+function uidsEquivalent(a, b) {
+    return a === b || convertUidToExternalId(a) === b || a === convertUidToExternalId(b);
+}
+
+/**
      * @returns {Array} The array of logs for the current course and user.
      */
 function getLogsForCurrentUser() {
@@ -1555,7 +1582,7 @@ function setupEventListeners() {
             const dateObj = new Date(log.timestamp);
             if (isNaN(dateObj.getTime())) return;
             const scannedUid = log.uid;
-            const dbKey = uidToPrimaryUidMap[scannedUid];
+            const dbKey = lookupPrimaryUid(scannedUid);
             const groupIdentifier = dbKey || scannedUid;
 
             const studentData = dbKey ? databaseMap[dbKey] : null;
@@ -3503,7 +3530,7 @@ async function showDirectEisExportDialog(prefilledDateStr = null) {
             let isMatch = (logSession === targetSession);
             if (logSession === 'Default' && categories.length <= 1) isMatch = true;
             if (isMatch) {
-                const primaryKey = uidToPrimaryUidMap[log.uid];
+                const primaryKey = lookupPrimaryUid(log.uid);
                 if (primaryKey) uidCounts[primaryKey] = (uidCounts[primaryKey] || 0) + 1;
             }
         });
@@ -4386,6 +4413,7 @@ function showRegisterUIDDialog() {
     };
 
     uidInput.addEventListener('input', checkSubmitButton);
+    uidInput.addEventListener('input', () => { delete uidInput.dataset.hardwareUid; });
 
     // Start scanning if supported
     if (nfcSupported) {
@@ -4394,7 +4422,8 @@ function showRegisterUIDDialog() {
         const reader = new NDEFReader();
         reader.scan({ signal: registrationNfcController.signal }).then(() => {
             reader.onreading = ({ serialNumber }) => {
-                uidInput.value = serialNumber;
+                uidInput.dataset.hardwareUid = serialNumber;
+                uidInput.value = convertUidToExternalId(serialNumber);
                 playSound(true);
                 nfcStatusContainer.innerHTML = `<div class="sync-status success" style="justify-content: center; padding: 30px 0; font-size: 1em; color: var(--success-color);"><i class="fa-solid fa-circle-check"></i> <span>Card Scanned!</span></div>`;
                 checkSubmitButton();
@@ -4411,7 +4440,7 @@ function showRegisterUIDDialog() {
     }
 
     document.getElementById('submit-register-btn').addEventListener('click', () => {
-        const uid = uidInput.value.trim();
+        const uid = convertUidToExternalId(uidInput.value.trim());
         if (!uid || !currentUser) return;
 
         const submitBtn = document.getElementById('submit-register-btn');
@@ -4519,7 +4548,7 @@ function showRegisterUIDDialogWithPrefill(prefillUid) {
 
         const name = nameInput.value.trim();
         const email = emailInput.value.trim();
-        const uid = uidInput.value.trim();
+        const uid = convertUidToExternalId(uidInput.value.trim());
 
         // Validation
         let hasError = false;
@@ -4607,7 +4636,7 @@ function findDuplicateInDatabase(entry) {
             rowIndex: parseInt(dbKey) // Use the index as the key
         };
 
-        if (existingUids.includes(newUid)) return { type: 'uid', duplicate: duplicateData };
+        if (existingUids.some(eu => uidsEquivalent(eu, newUid))) return { type: 'uid', duplicate: duplicateData };
         if (newEmail && existingEmail && existingEmail === newEmail) return { type: 'email', duplicate: duplicateData };
         if (existingName === newName) return { type: 'name', duplicate: duplicateData };
     }
@@ -4737,7 +4766,7 @@ function showDuplicateWarningForNewEntry(newData, duplicates, onCompleteCallback
     addAnywayBtn.addEventListener('click', () => {
         const existingKeys = Object.keys(databaseMap).map(Number);
         const newDbKey = existingKeys.length > 0 ? Math.max(...existingKeys) + 1 : 1;
-        databaseMap[newDbKey] = { name: newData.name, email: newData.email, uids: [newData.uid] };
+        databaseMap[newDbKey] = { name: newData.name, email: newData.email, uids: [newData.uid], hardware_uids: [newData.hardwareUid || newData.uid] };
         showNotification('success', 'Entry Added', `Added ${newData.name} as a separate entry.`);
         onCompleteCallback(); closeDialog();
     });
@@ -4754,8 +4783,17 @@ function showDuplicateWarningForNewEntry(newData, duplicates, onCompleteCallback
         if (nameCheck && nameCheck.checked) existingEntryData.name = newData.name;
         if (emailCheck && emailCheck.checked) existingEntryData.email = newData.email;
         if (uidSelect) {
-            if (uidSelect.value === 'merge') { if (!existingEntryData.uids.includes(newData.uid)) existingEntryData.uids.push(newData.uid); }
-            else if (uidSelect.value === 'replace') { existingEntryData.uids = [newData.uid]; }
+            const hardwareUid = newData.hardwareUid || newData.uid;
+            if (uidSelect.value === 'merge') {
+                if (!existingEntryData.uids.includes(newData.uid)) {
+                    existingEntryData.uids.push(newData.uid);
+                    existingEntryData.hardware_uids = existingEntryData.hardware_uids || [];
+                    existingEntryData.hardware_uids.push(hardwareUid);
+                }
+            } else if (uidSelect.value === 'replace') {
+                existingEntryData.uids = [newData.uid];
+                existingEntryData.hardware_uids = [hardwareUid];
+            }
         }
         showNotification('success', 'Entry Updated', `Updated details for ${existingEntryData.name}.`);
         onCompleteCallback(); closeDialog();
@@ -4931,7 +4969,7 @@ function showApproveDialog(registration) {
         };
 
         // Priority 1: UID Match
-        if (existingUids.includes(newUid)) {
+        if (existingUids.some(eu => uidsEquivalent(eu, newUid))) {
             match = { type: 'uid', duplicate: duplicateData };
             break;
         }
@@ -6570,12 +6608,15 @@ function startNfcForInputDialog(inputElement, statusContainer, scanButton) {
         window.activeNfcController.abort();
     }
 
+    inputElement.addEventListener('input', () => { delete inputElement.dataset.hardwareUid; });
+
     const nfcController = new AbortController();
     const reader = new NDEFReader();
 
     reader.scan({ signal: nfcController.signal }).then(() => {
         reader.onreading = ({ serialNumber }) => {
-            inputElement.value = serialNumber;
+            inputElement.dataset.hardwareUid = serialNumber;
+            inputElement.value = convertUidToExternalId(serialNumber);
             playSound(true);
             statusContainer.innerHTML = `<div class="sync-status success" style="justify-content: center; padding: 15px 0; font-size: 1em;"><i class="fa-solid fa-circle-check"></i> <span>Card Scanned!</span></div>`;
 
@@ -8044,7 +8085,9 @@ function showAddEntryDialog() {
         clearInputError(uidInput);
         const name = nameInput.value.trim();
         const email = emailInput.value.trim();
-        const uid = uidInput.value.trim();
+        const rawUid = uidInput.value.trim();
+        const uid = convertUidToExternalId(rawUid);
+        const hardwareUid = uidInput.dataset.hardwareUid || rawUid;
         let isValid = true;
         if (name === '') { showInputError(nameInput, 'Name is required.'); isValid = false; }
         if (!isValidEmail(email)) { showInputError(emailInput, 'A valid email is required.'); isValid = false; }
@@ -8055,6 +8098,7 @@ function showAddEntryDialog() {
             name: name,
             email: email,
             uid: uid,
+            hardwareUid: hardwareUid,
             sentBy: {
                 name: currentUser?.name || '',
                 email: currentUser?.email || ''
@@ -8163,7 +8207,7 @@ function editDatabaseEntry(dbKey) {
     const uidListContainer = dialog.querySelector('#uid-list-container');
     const nfcStatusContainer = dialog.querySelector('#nfc-status-container');
 
-    const createUidRow = (uidValue = '') => {
+    const createUidRow = (uidValue = '', hardwareUidValue = '') => {
         const uidGroup = document.createElement('div');
         uidGroup.setAttribute('class', 'form-group uid-edit-row');
         uidGroup.style.marginBottom = '15px'; // Increased margin
@@ -8174,6 +8218,10 @@ function editDatabaseEntry(dbKey) {
         <button class="btn-red btn-icon btn-sm remove-uid-btn" title="Remove UID"><i class="fa-solid fa-minus"></i></button>
     </div> `;
         uidListContainer.appendChild(uidGroup);
+
+        const uidInputEl = uidGroup.querySelector('.uid-input');
+        if (hardwareUidValue) uidInputEl.dataset.hardwareUid = hardwareUidValue;
+        uidInputEl.addEventListener('input', () => { delete uidInputEl.dataset.hardwareUid; });
 
         uidGroup.querySelector('.remove-uid-btn').addEventListener('click', () => {
             if (uidListContainer.querySelectorAll('.form-group').length > 1) {
@@ -8210,7 +8258,7 @@ function editDatabaseEntry(dbKey) {
         }
     };
 
-    entry.uids.forEach(uid => createUidRow(uid));
+    entry.uids.forEach((uid, i) => createUidRow(uid, (entry.hardware_uids || [])[i] || ''));
     if (entry.uids.length === 0) createUidRow();
 
     dialog.querySelector('#add-new-uid-row-btn').addEventListener('click', () => createUidRow());
@@ -8239,15 +8287,26 @@ function editDatabaseEntry(dbKey) {
         let isValid = true;
         if (newName === '') { showInputError(nameInput, 'Name is required.'); isValid = false; }
         if (!isValidEmail(newEmail)) { showInputError(emailInput, 'A valid email is required.'); isValid = false; }
-        const updatedUids = uidInputs.map(input => input.value.trim());
+        const updatedUids = uidInputs.map(input => convertUidToExternalId(input.value.trim()));
+        const updatedHardwareUids = uidInputs.map(input => input.dataset.hardwareUid || input.value.trim());
         if (updatedUids.some(uid => uid === '')) {
             showInputError(uidInputs.find(input => input.value.trim() === ''), 'UID fields cannot be empty.');
             isValid = false;
         }
         if (!isValid) return;
 
+        // Keep uids/hardware_uids as parallel arrays
+        const finalUids = [];
+        const finalHardwareUids = [];
+        updatedUids.forEach((uid, i) => {
+            if (uid) {
+                finalUids.push(uid);
+                finalHardwareUids.push(updatedHardwareUids[i]);
+            }
+        });
+
         // 1. Update local map
-        databaseMap[dbKey] = { name: newName, email: newEmail, uids: updatedUids.filter(Boolean) };
+        databaseMap[dbKey] = { name: newName, email: newEmail, uids: finalUids, hardware_uids: finalHardwareUids };
 
         // 2. UPDATE UI IMMEDIATELY
         window.buildUIDToPrimaryUidMap();
@@ -8263,7 +8322,8 @@ function editDatabaseEntry(dbKey) {
                 dbKey: dbKey,
                 name: newName,
                 email: newEmail,
-                uids: updatedUids.filter(Boolean)
+                uids: finalUids,
+                hardwareUids: finalHardwareUids
             };
 
             callWebApp('updateStudentInDatabase_Admin', updateData, 'POST')
@@ -9724,7 +9784,7 @@ function updateLogsList() {
         if (isNaN(dateObj.getTime())) return;
 
         const scannedUid = log.uid; // The actual UID from the card
-        const dbKey = uidToPrimaryUidMap[scannedUid];
+        const dbKey = lookupPrimaryUid(scannedUid);
 
         const studentData = dbKey ? databaseMap[dbKey] : null;
         const name = studentData ? studentData.name : 'Unknown';
@@ -10658,7 +10718,7 @@ async function handleNfcReading({ serialNumber }) {
     // Runs if Signed In OR in Lecturer Mode
     // ============================================================
 
-    const primaryUid = uidToPrimaryUidMap[serialNumber];
+    const primaryUid = lookupPrimaryUid(serialNumber);
     const finalUid = primaryUid || serialNumber;
     lastScannedUID = serialNumber;
 
