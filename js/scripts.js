@@ -2,10 +2,21 @@
 let isAdmin = false;
 let isGlobalAdmin = false;
 let adminCourses = [];
-const CLIENT_ID = '740588046540-npg0crodtcuinveu6bua9rd6c3hb2s1m.apps.googleusercontent.com';
+const CLIENT_ID = '740588046540-975b4g8i4915hps31p1ioi0e000f4boi.apps.googleusercontent.com';
 const LOGS_SPREADSHEET_ID = '1AvVrBRt4_3GJTVMmFph6UsUsplV9h8jXU93n1ezbMME';
 const LOGS_STORAGE_KEY = 'attendance_logs';
-const BRAIN_URL = 'https://script.google.com/macros/s/AKfycbz1XUv03s45Jr5q_driL53cYfS1ordbg4lR_sKLGkaDaI9MVtLCJTTK73oRz__UNIKlHQ/exec';
+const BRAIN_URL = 'https://script.google.com/macros/s/AKfycbw_PHhg5kEz28Yslrjo4Vd4iDGk0jyzWgeZySvXgB6w4TnWGlPCBgd7rKme6AzCaGexgQ/exec';
+
+// Supabase Auth (sessions auto-refresh; the anon key is public-safe ONLY with RLS enabled)
+const SUPABASE_URL = 'https://yeuxwdijlpgfgajjjebj.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlldXh3ZGlqbHBnZmdhampqZWJqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAxNDE4NzYsImV4cCI6MjA5NTcxNzg3Nn0.YvO3Ug023m5Biy-rr0qwafzy1u51-kBOie-eGGu5Y64';
+const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// Kiosk (NFC) sessions bypass Supabase and use a short-lived backend token
+const KIOSK_TOKEN_KEY = 'kiosk_token';
+
+// Raw nonce for the current One Tap prompt (its SHA-256 hash is sent to Google)
+let oneTapRawNonce = null;
 
 // App state
 let courseData = {};
@@ -21,7 +32,6 @@ let currentDbSort = localStorage.getItem('db_sort') || 'name-asc';
 let soundEnabled = true; // Sound effects enabled by default
 let isSignedIn = false; // User is signed in
 let currentUser = null; // Current user info
-let tokenClient = null; // Google OAuth token client
 let currentCourse = ''; // Currently selected course
 let availableCourses = []; // Will be populated from spreadsheet
 let isOnline = navigator.onLine;
@@ -90,8 +100,6 @@ let tabs, tabContents, importExcelBtn, excelInput, filterInput, sortSelect,
     syncBtn, syncStatus, syncText, loginBtn, logoutBtn, loginContainer,
     userContainer, userName, userAvatar, scanHistoryModule;
 
-// This constant can stay here
-const SCOPES = "https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/spreadsheets";
 
 function checkLoadingCompletion() {
     if (loadingTasks.size === 0) {
@@ -175,11 +183,10 @@ function parseJwt(token) {
     return JSON.parse(jsonPayload);
 }
 
-function handleOneTapResponse(response) {
+async function handleOneTapResponse(response) {
     const responsePayload = parseJwt(response.credential);
     console.log("One Tap Auto-Sign-In Detected for:", responsePayload.email);
 
-    const loginContainer = document.getElementById('login-container');
     const loginBtn = document.getElementById('login-btn');
 
     // 1. UI State: Show "Verifying" spinner
@@ -191,16 +198,18 @@ function handleOneTapResponse(response) {
         loginBtn.style.cursor = "wait";
     }
 
-    // 2. Request Access Token SILENTLY
-    // This prevents the "Flash/Popup" issue.
-    if (tokenClient) {
-        tokenClient.requestAccessToken({
-            prompt: 'none',
-            login_hint: responsePayload.email
+    // 2. Exchange the Google ID token for a Supabase session (no popup, no redirect)
+    try {
+        const { error } = await supabaseClient.auth.signInWithIdToken({
+            provider: 'google',
+            token: response.credential,
+            nonce: oneTapRawNonce // raw nonce; Google received its SHA-256 hash
         });
-    } else {
-        console.error("Token Client not initialized.");
-        // Reset UI if GAPI failed
+        if (error) throw error;
+
+        onSuccessfulAuth(false);
+    } catch (err) {
+        console.error("One Tap sign-in failed:", err);
         if (loginBtn) {
             loginBtn.disabled = false;
             loginBtn.innerHTML = loginBtn.dataset.originalText || '<i class="fa-brands fa-google"></i> Sign in';
@@ -208,6 +217,11 @@ function handleOneTapResponse(response) {
             loginBtn.style.cursor = "pointer";
         }
     }
+}
+
+async function sha256Hex(str) {
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+    return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
 /**
@@ -1123,7 +1137,7 @@ function clearAllAppData() {
     // Find all keys used by this application.
     for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
-        if (key.startsWith('attendance_') || key.startsWith('gapi_') || key.startsWith('eis_pref_') || ['theme', 'logs_sort', 'db_sort', 'last_active_course'].includes(key)) {
+        if (key.startsWith('attendance_') || key.startsWith('sb-') || key.startsWith('eis_pref_') || [KIOSK_TOKEN_KEY, 'theme', 'logs_sort', 'db_sort', 'last_active_course'].includes(key)) {
             keysToRemove.push(key);
         }
     }
@@ -3646,30 +3660,9 @@ function copyToClipboard(text) {
 
 // Check for auth redirect
 function checkAuthRedirect() {
-    if (window.location.hash && window.location.hash.includes('access_token=')) {
-
-        const originalHash = sessionStorage.getItem('redirect_hash');
-        sessionStorage.removeItem('redirect_hash');
-
-        const params = {};
-        window.location.hash.substring(1).split('&').forEach(pair => {
-            const [key, value] = pair.split('=');
-            params[key] = decodeURIComponent(value);
-        });
-
-        // Clean the URL, but restore the original course hash
-        if (history.replaceState) {
-            history.replaceState(null, null, window.location.pathname + (originalHash || ''));
-        } else {
-            window.location.hash = originalHash || '';
-        }
-
-        if (params.access_token) {
-            // JUST save to localStorage. DO NOT try to init gapi.
-            localStorage.setItem('gapi_token', JSON.stringify({ access_token: params.access_token }));
-            // We saved the token. initGoogleApi will now find it on its own.
-        }
-    }
+    // supabase-js (detectSessionInUrl) consumes the OAuth callback tokens from the
+    // URL itself. The course anchor saved before the redirect is restored in
+    // initGoogleApi() once the session is available.
 }
 
 /**
@@ -3677,7 +3670,9 @@ function checkAuthRedirect() {
 * Sets up event listeners, checks NFC support, and prepares the UI.
 */
 function init() {
-    if (!localStorage.getItem('gapi_token')) {
+    const hasStoredSession = localStorage.getItem(KIOSK_TOKEN_KEY) ||
+        Object.keys(localStorage).some(k => k.startsWith('sb-') && k.includes('auth-token'));
+    if (!hasStoredSession) {
         localStorage.removeItem('last_active_course');
     }
 
@@ -3887,49 +3882,6 @@ function processPendingNotifications() {
 }
 
 /**
-* Helper function that your existing initGoogleApi() is trying to call
-*/
-function gapiLoaded() {
-    return new Promise((resolve, reject) => {
-        if (typeof gapi === 'undefined') {
-            setTimeout(() => gapiLoaded().then(resolve).catch(reject), 100);
-            return;
-        }
-
-        gapi.load('client', {
-            callback: resolve,
-            onerror: reject,
-            timeout: 5000,
-            ontimeout: () => reject(new Error('gapi.client load timeout'))
-        });
-    });
-}
-
-async function attemptTokenRestore() {
-    try {
-        const storedToken = localStorage.getItem('gapi_token');
-        if (!storedToken) return false;
-
-        const tokenObj = JSON.parse(storedToken);
-        if (!tokenObj || !tokenObj.access_token) {
-            localStorage.removeItem('gapi_token');
-            return false;
-        }
-
-        gapi.client.setToken(tokenObj);
-
-        await gapi.client.request({
-            path: 'https://www.googleapis.com/oauth2/v3/userinfo'
-        });
-
-        return true;
-    } catch (error) {
-        localStorage.removeItem('gapi_token');
-        return false;
-    }
-}
-
-/**
  * Helper function that your existing initGoogleApi() is trying to call
  */
 function gisLoaded() {
@@ -3945,8 +3897,9 @@ function gisLoaded() {
 }
 
 /**
- * Initialize Google API client.
- * Set up auth token client and event listeners for login/logout.
+ * Initialize authentication.
+ * Supabase owns the session (stored + auto-refreshed by supabase-js);
+ * Google One Tap provides silent sign-in via supabase.auth.signInWithIdToken().
  */
 async function initGoogleApi() {
     if (initInProgress) return;
@@ -3954,27 +3907,33 @@ async function initGoogleApi() {
     isInitializing = true;
 
     try {
-        await gapiLoaded();
         await gisLoaded();
 
-        await gapi.client.init({});
+        // Waits for supabase-js to restore a stored session or consume an OAuth redirect
+        const { data: { session } } = await supabaseClient.auth.getSession();
 
-        tokenClient = google.accounts.oauth2.initTokenClient({
-            client_id: CLIENT_ID,
-            scope: SCOPES,
-            callback: handleTokenResponse, // This now handles the silent fail gracefully
-        });
+        // Restore the course anchor saved before an OAuth redirect
+        const originalHash = sessionStorage.getItem('redirect_hash');
+        if (originalHash !== null) {
+            sessionStorage.removeItem('redirect_hash');
+            if (history.replaceState) {
+                history.replaceState(null, null, window.location.pathname + originalHash);
+            }
+        }
 
-        // Try to restore session from LocalStorage first
-        const restored = await attemptTokenRestore();
-
-        if (restored) {
+        if (session) {
             onSuccessfulAuth(true);
         } else {
-            // Only show One Tap if we are NOT signed in
+            // Only show One Tap if we are NOT signed in.
+            // Supabase enforces nonce checks: Google gets the SHA-256 hash,
+            // signInWithIdToken() gets the raw nonce for verification.
+            oneTapRawNonce = crypto.randomUUID();
+            const hashedNonce = await sha256Hex(oneTapRawNonce);
+
             google.accounts.id.initialize({
                 client_id: CLIENT_ID,
                 callback: handleOneTapResponse,
+                nonce: hashedNonce,
                 auto_select: true, // Auto-signin returning users
                 cancel_on_tap_outside: false,
                 use_fedcm_for_prompt: true
@@ -4021,17 +3980,16 @@ async function onSuccessfulAuth(isRestore = false) {
     try {
         // --- PHASE 1: CRITICAL BOOT ---
 
-        // 1. Get user info
-        // CHANGE: Only ask Google if we don't already have the user (Standard Login).
+        // 1. Get user info from the Supabase session.
         // In Kiosk mode, 'currentUser' is already set by handleNfcReading.
         if (!currentUser) {
-            const userInfoResponse = await gapi.client.request({
-                path: 'https://www.googleapis.com/oauth2/v3/userinfo'
-            });
+            const { data: { session } } = await supabaseClient.auth.getSession();
+            if (!session) throw new Error('No active session.');
+            const meta = session.user.user_metadata || {};
             currentUser = {
-                email: userInfoResponse.result.email,
-                name: userInfoResponse.result.name,
-                picture: normalizeGooglePhotoUrl(userInfoResponse.result.picture)
+                email: session.user.email,
+                name: meta.full_name || meta.name || session.user.email,
+                picture: normalizeGooglePhotoUrl(meta.avatar_url || meta.picture)
             };
         }
 
@@ -4159,9 +4117,7 @@ async function onSuccessfulAuth(isRestore = false) {
         })();
 
         // --- PHASE 4: SESSION AUTO-DESTRUCT (KIOSK ONLY) ---
-        // Only run this timer if we are in Kiosk mode (token starts with "KIOSK_")
-        const storedTokenStr = localStorage.getItem('gapi_token');
-        const isKioskMode = storedTokenStr && storedTokenStr.includes('KIOSK_');
+        const isKioskMode = !!localStorage.getItem(KIOSK_TOKEN_KEY);
 
         if (isKioskMode) {
             // Set this to MATCH your Backend.js SESSION_DURATION (in milliseconds)
@@ -4172,7 +4128,7 @@ async function onSuccessfulAuth(isRestore = false) {
 
             window.sessionTimer = setTimeout(() => {
                 console.warn("Kiosk session time limit reached. Reloading...");
-                localStorage.removeItem('gapi_token');
+                localStorage.removeItem(KIOSK_TOKEN_KEY);
                 window.location.reload();
             }, SESSION_TIMEOUT_MS);
         }
@@ -4237,68 +4193,6 @@ function cleanupOldLocalStorage() {
 }
 
 
-/**
- * Handle token response from Google OAuth.
- * @param {Object} resp - The token response object.
- */
-function handleTokenResponse(resp) {
-    const loginContainer = document.getElementById('login-container');
-    const userContainer = document.getElementById('user-container');
-    const loginBtn = document.getElementById('login-btn');
-
-    // 1. Handle Silent Failure / Missing Permissions / Popup Blocked
-    // If 'error' exists, it means the silent attempt failed (user needs to click).
-    if (resp.error || !resp.access_token) {
-        console.warn('Silent auth failed or consent missing:', resp);
-
-        // Reset UI to show the "Grant Permissions" button
-        if (userContainer) userContainer.style.display = 'none';
-        if (loginContainer) loginContainer.style.display = 'flex';
-
-        if (loginBtn) {
-            // Important: We change the button to indicate action is needed
-            loginBtn.disabled = false; // Re-enable button
-            loginBtn.style.cursor = "pointer";
-            loginBtn.innerHTML = '<i class="fa-solid fa-shield-halved"></i> Grant Permissions';
-            loginBtn.style.backgroundColor = "#fb8c00"; // Orange color
-
-            // Ensure the click handler uses the STANDARD prompt (popup)
-            // We clone to strip old listeners and add a fresh one
-            const newBtn = loginBtn.cloneNode(true);
-            loginBtn.parentNode.replaceChild(newBtn, loginBtn);
-
-            newBtn.addEventListener('click', (e) => {
-                e.preventDefault();
-                // When clicked MANUALLY, we are allowed to use 'consent' or ''
-                tokenClient.requestAccessToken({ prompt: 'consent' });
-            });
-        }
-        return;
-    }
-
-    // 2. Success - We have the Token!
-    try {
-        // Set the token in GAPI immediately
-        gapi.client.setToken(resp);
-        localStorage.setItem('gapi_token', JSON.stringify(resp));
-
-        isSignedIn = true;
-
-        // Proceed to boot the app
-        onSuccessfulAuth(false);
-
-    } catch (error) {
-        console.error('Error processing token:', error);
-        showNotification('error', 'Login Error', 'Token processed but boot failed.');
-
-        // Reset button on fatal error
-        if (loginBtn) {
-            loginBtn.disabled = false;
-            loginBtn.innerHTML = '<i class="fa-brands fa-google"></i> Sign in';
-            loginBtn.style.backgroundColor = "";
-        }
-    }
-}
 
 /**
  * Fetch user info (profile) from Google.
@@ -4309,55 +4203,6 @@ function normalizeGooglePhotoUrl(url) {
     // Strip any existing size param, then append =s96-c for the CDN-cached 96px version.
     // This avoids 429s caused by multiple img tags hitting the same uncached URL.
     return url.replace(/=s\d+(-c)?$/, '') + '=s96-c';
-}
-
-async function fetchUserInfo() {
-    try {
-        const tokenObj = gapi.client.getToken();
-        if (!tokenObj || !tokenObj.access_token) {
-            console.error('No valid token available');
-            throw new Error('No valid token available');
-        }
-
-
-        const response = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-            headers: { 'Authorization': `Bearer ${tokenObj.access_token}` }
-        });
-
-        if (!response.ok) {
-            console.error('Failed to fetch user info, status:', response.status);
-            throw new Error(`Failed to fetch user info: ${response.status} ${response.statusText}`);
-        }
-
-        const userInfo = await response.json();
-
-        const initials = (userInfo.name || userInfo.email)
-            .split(' ')
-            .map(n => n[0])
-            .join('')
-            .substring(0, 2)
-            .toUpperCase();
-
-        const randomColor = Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0');
-        const avatarUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(initials)}&background=${randomColor}&color=ffffff&size=64&bold=true`;
-
-        currentUser = {
-            id: userInfo.sub,
-            name: userInfo.name || userInfo.email,
-            email: userInfo.email,
-            picture: normalizeGooglePhotoUrl(userInfo.picture) || avatarUrl
-        };
-
-        // Update user info in UI
-        userName.textContent = currentUser.name;
-        userAvatar.src = currentUser.picture;
-
-        return currentUser;
-    } catch (error) {
-        console.error('Error fetching user info:', error);
-        showNotification('error', 'User Info Error', error.message || 'Failed to get user information');
-        throw error;
-    }
 }
 
 function showRegisterUIDDialog() {
@@ -6478,7 +6323,13 @@ function showRejectDialog(registration) {
 }
 
 async function callWebApp(action, payload = {}, method = 'POST') {
-    const token = gapi.client.getToken()?.access_token;
+    // Kiosk token takes priority; otherwise the Supabase session JWT
+    // (getSession() transparently refreshes an expired session).
+    let token = localStorage.getItem(KIOSK_TOKEN_KEY);
+    if (!token) {
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        token = session?.access_token;
+    }
     if (!token) {
         handleSignoutClick();
         throw new Error("User not signed in or token expired.");
@@ -6522,7 +6373,7 @@ async function callWebApp(action, payload = {}, method = 'POST') {
             // --- HANDLE SESSION EXPIRY ---
             if (data.message === 'KIOSK_SESSION_EXPIRED') {
                 console.warn("Kiosk session expired. Reloading.");
-                localStorage.removeItem('gapi_token');
+                localStorage.removeItem(KIOSK_TOKEN_KEY);
 
                 // Optional: Show a quick alert before reloading
                 document.body.innerHTML = `<div style="display:flex;justify-content:center;align-items:center;height:100vh;flex-direction:column;font-family:sans-serif;"><h1>Session Expired</h1><p>Refreshing...</p></div>`;
@@ -6544,29 +6395,18 @@ async function callWebApp(action, payload = {}, method = 'POST') {
 /**
  * Handle auth button click to sign in.
  */
-// Replace your handleAuthClick function with this updated version
 function handleAuthClick(e) {
-    sessionStorage.setItem('redirect_hash', window.location.hash);
     if (e) e.preventDefault();
 
+    // Save the course anchor so initGoogleApi() can restore it after the redirect
+    sessionStorage.setItem('redirect_hash', window.location.hash);
 
-    // Get the exact current URL as redirect URI (very important!)
-    const redirectUri = window.location.origin + window.location.pathname;
-
-    // Create Google OAuth URL with scopes
-    const scopes = encodeURIComponent('openid ' + SCOPES);
-    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
-        `client_id=${CLIENT_ID}&` +
-        `redirect_uri=${encodeURIComponent(redirectUri)}&` +
-        `response_type=token&` +
-        `scope=${scopes}`;
-
-
-    // Add a small delay before redirecting to ensure the notification is displayed
-    setTimeout(() => {
-        // Redirect to Google login
-        window.location.href = authUrl;
-    }, 100);
+    supabaseClient.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+            redirectTo: window.location.origin + window.location.pathname
+        }
+    });
 }
 
 /**
@@ -6860,13 +6700,18 @@ function getSuggestedDate(metadata) {
     return todayStr;
 }
 
-// REPLACEMENT FUNCTION
 function handleSignoutClick() {
     // --- STANDARD SIGN-OUT ---
-    // Always clear the token and reload to ensure a clean state.
-    localStorage.removeItem('gapi_token');
+    // Clear kiosk + Supabase sessions and reload to ensure a clean state.
+    localStorage.removeItem(KIOSK_TOKEN_KEY);
     localStorage.removeItem('last_active_course');
-    window.location.reload();
+
+    // Stop One Tap from silently signing the user straight back in
+    if (typeof google !== 'undefined' && google.accounts?.id) {
+        google.accounts.id.disableAutoSelect();
+    }
+
+    supabaseClient.auth.signOut({ scope: 'local' }).finally(() => window.location.reload());
 }
 
 // Update sync status indicator
@@ -7181,58 +7026,18 @@ async function loadCourseFromLocalStorage(courseName) {
 
 // Add this to track authentication state better
 function setupAuthStateTracking() {
-    // Check if we are in Kiosk mode first
-    const storedTokenStr = localStorage.getItem('gapi_token');
-    if (storedTokenStr && storedTokenStr.includes('KIOSK_')) {
-        return; // Kiosk tokens cannot be refreshed via Google. Stop here.
-    }
+    // Kiosk tokens are validated server-side and cannot be refreshed.
+    if (localStorage.getItem(KIOSK_TOKEN_KEY)) return;
 
-    // Refresh token every 30 minutes (Safer buffer)
-    const REFRESH_INTERVAL = 30 * 60 * 1000;
-
-    setInterval(async () => {
-        if (!isSignedIn) return;
-
-        console.log("Performing proactive token refresh...");
-        try {
-            const tokenObj = gapi.client.getToken();
-            if (tokenObj) {
-                if (tokenClient) {
-                    // Silent refresh
-                    tokenClient.requestAccessToken({
-                        prompt: 'none',
-                        login_hint: currentUser?.email
-                    });
-                }
-            }
-        } catch (error) {
-            console.warn('Proactive refresh failed', error);
+    // supabase-js auto-refreshes the session in the background;
+    // we only need to react if the session is lost for good.
+    supabaseClient.auth.onAuthStateChange((event) => {
+        if (event === 'SIGNED_OUT' && isSignedIn) {
+            isSignedIn = false;
+            showNotification('warning', 'Session Expired', 'Please sign in again to continue.');
+            updateAuthUI();
         }
-    }, REFRESH_INTERVAL);
-}
-
-// Try to silently refresh the token without popup
-async function attemptSilentAuth() {
-    try {
-        // Check if we have a valid token stored
-        const tokenObj = gapi.client.getToken();
-        if (!tokenObj) {
-            return;
-        }
-
-        // Try to make a simple API call to test if token is still valid
-        // If it succeeds, token is good; if it fails, we'll catch it elsewhere
-        await gapi.client.request({
-            path: 'https://www.googleapis.com/oauth2/v3/tokeninfo',
-            method: 'GET'
-        });
-
-    } catch (error) {
-        console.warn('Token expired, user will need to sign in again');
-        showNotification('warning', 'Session Expired', 'Please sign in again to continue.');
-        // Don't use requestAccessToken here as it opens popup
-        // Let the user naturally re-authenticate next time they interact
-    }
+    });
 }
 
 // Show a warning in the UI about authentication issues
@@ -10692,9 +10497,7 @@ async function handleNfcReading({ serialNumber }) {
 
             if (data.result === 'success') {
                 // === ADMIN LOGIN SUCCESS ===
-                const fakeGapiToken = { access_token: data.token };
-                localStorage.setItem('gapi_token', JSON.stringify(fakeGapiToken));
-                gapi.client.setToken(fakeGapiToken);
+                localStorage.setItem(KIOSK_TOKEN_KEY, data.token);
                 currentUser = data.user;
                 showNotification('success', 'Session Active', `Welcome, ${currentUser.name}`);
                 onSuccessfulAuth(false);
@@ -11369,14 +11172,14 @@ window.addEventListener('load', function () {
 
     // Reduced initial delay - Google APIs usually load fast
     setTimeout(() => {
-        if (typeof gapi !== 'undefined' && typeof google !== 'undefined') {
+        if (typeof supabase !== 'undefined' && typeof google !== 'undefined') {
             initGoogleApi();
         } else {
             console.warn('Google API objects not available yet, waiting...');
 
             // Fallback with longer timeout
             setTimeout(() => {
-                if (typeof gapi !== 'undefined' && typeof google !== 'undefined') {
+                if (typeof supabase !== 'undefined' && typeof google !== 'undefined') {
                     initGoogleApi();
                 } else {
                     console.error('Google API objects still not available');

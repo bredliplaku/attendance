@@ -8,8 +8,8 @@
     <link rel="icon" href="./favicon.png">
     <meta name="theme-color" content="#f4f4f4" />
     <!-- Preconnect to external domains for faster loading -->
-    <link rel="dns-prefetch" href="https://apis.google.com">
     <link rel="dns-prefetch" href="https://accounts.google.com">
+    <link rel="dns-prefetch" href="https://yeuxwdijlpgfgajjjebj.supabase.co">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="preconnect" href="https://cdnjs.cloudflare.com">
@@ -22,8 +22,7 @@
         rel="stylesheet">
     <!-- Load XLSX library with defer since it's not needed immediately -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
-    <!-- Google API client library -->
-    <script src="https://apis.google.com/js/api.js" async defer></script>
+    <!-- Google Identity Services (One Tap / sign-in) -->
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <link rel="stylesheet" href="css/styles.css">
 
@@ -438,6 +437,8 @@
         <img src="./miscellaneous/whisker.webp" alt="Cat Companion">
     </div>
 
+    <!-- Supabase must load before scripts.js (creates the auth client at parse time) -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
     <script src="js/scripts.js"></script>
 
 </body>
