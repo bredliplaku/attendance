@@ -1,1 +1,2 @@
-js/gscript.js
+supabase/send-email/index.ts
+supabase/kiosk-login/index.ts

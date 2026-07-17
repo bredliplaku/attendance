@@ -2,18 +2,18 @@
 let isAdmin = false;
 let isGlobalAdmin = false;
 let adminCourses = [];
-const CLIENT_ID = '740588046540-975b4g8i4915hps31p1ioi0e000f4boi.apps.googleusercontent.com';
-const LOGS_SPREADSHEET_ID = '1AvVrBRt4_3GJTVMmFph6UsUsplV9h8jXU93n1ezbMME';
+const CLIENT_ID = '740588046540-npg0crodtcuinveu6bua9rd6c3hb2s1m.apps.googleusercontent.com';
 const LOGS_STORAGE_KEY = 'attendance_logs';
-const BRAIN_URL = 'https://script.google.com/macros/s/AKfycbw_PHhg5kEz28Yslrjo4Vd4iDGk0jyzWgeZySvXgB6w4TnWGlPCBgd7rKme6AzCaGexgQ/exec';
+// Storage bucket for absence attachments (limits enforced by the bucket)
+const ATTACHMENTS_BUCKET = 'absence-attachments';
 
 // Supabase Auth (sessions auto-refresh; the anon key is public-safe ONLY with RLS enabled)
 const SUPABASE_URL = 'https://yeuxwdijlpgfgajjjebj.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlldXh3ZGlqbHBnZmdhampqZWJqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAxNDE4NzYsImV4cCI6MjA5NTcxNzg3Nn0.YvO3Ug023m5Biy-rr0qwafzy1u51-kBOie-eGGu5Y64';
 const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// Kiosk (NFC) sessions bypass Supabase and use a short-lived backend token
-const KIOSK_TOKEN_KEY = 'kiosk_token';
+// Marks a kiosk (NFC) session so it auto-expires
+const KIOSK_MODE_KEY = 'kiosk_mode';
 
 // Raw nonce for the current One Tap prompt (its SHA-256 hash is sent to Google)
 let oneTapRawNonce = null;
@@ -33,7 +33,7 @@ let soundEnabled = true; // Sound effects enabled by default
 let isSignedIn = false; // User is signed in
 let currentUser = null; // Current user info
 let currentCourse = ''; // Currently selected course
-let availableCourses = []; // Will be populated from spreadsheet
+let availableCourses = []; // Populated from Supabase after sign-in
 let isOnline = navigator.onLine;
 let isSyncing = false;
 let isInitializing = true;
@@ -43,9 +43,8 @@ let criticalErrorsOnly = true;
 let initialSignIn = true; // Flag to track initial sign-in
 let lastScannedUID = null;
 let courseIDMap = {}; // Object to store course information - name to ID mapping
-let sheetNameMap = {}; // Maps display names to actual sheet names
 let excusedUIDs = new Set();
-let loadingTasks = new Set(['gapi', 'auth', 'courses', 'database']);
+let loadingTasks = new Set(['session', 'auth', 'courses', 'database']);
 let cooldownUIDs = new Set();
 let nfcAbortController = null;
 let initialisedCourses = new Set();
@@ -1137,7 +1136,7 @@ function clearAllAppData() {
     // Find all keys used by this application.
     for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
-        if (key.startsWith('attendance_') || key.startsWith('sb-') || key.startsWith('eis_pref_') || [KIOSK_TOKEN_KEY, 'theme', 'logs_sort', 'db_sort', 'last_active_course'].includes(key)) {
+        if (key.startsWith('attendance_') || key.startsWith('sb-') || key.startsWith('eis_pref_') || [KIOSK_MODE_KEY, 'theme', 'logs_sort', 'db_sort', 'last_active_course'].includes(key)) {
             keysToRemove.push(key);
         }
     }
@@ -1439,14 +1438,7 @@ function uidsEquivalent(a, b) {
      */
 function getLogsForCurrentUser() {
     if (!currentCourse) return [];
-
-    if (isGlobalAdmin) {
-        // Global admins use GAPI
-        return courseData[currentCourse]?.logs || [];
-    } else {
-        // Non-global admins and students use courseData (populated from backend)
-        return courseData[currentCourse]?.logs || [];
-    }
+    return courseData[currentCourse]?.logs || [];
 }
 
 function addToTombstones(id, course = currentCourse) {
@@ -3658,19 +3650,13 @@ function copyToClipboard(text) {
 }
 
 
-// Check for auth redirect
-function checkAuthRedirect() {
-    // supabase-js (detectSessionInUrl) consumes the OAuth callback tokens from the
-    // URL itself. The course anchor saved before the redirect is restored in
-    // initGoogleApi() once the session is available.
-}
 
 /**
 * Initialize the application.
 * Sets up event listeners, checks NFC support, and prepares the UI.
 */
 function init() {
-    const hasStoredSession = localStorage.getItem(KIOSK_TOKEN_KEY) ||
+    const hasStoredSession =
         Object.keys(localStorage).some(k => k.startsWith('sb-') && k.includes('auth-token'));
     if (!hasStoredSession) {
         localStorage.removeItem('last_active_course');
@@ -3792,7 +3778,6 @@ function init() {
     setupAuthStateTracking();
 
     // Handle auth redirect
-    checkAuthRedirect();
 
     // Override syncLogsWithSheet to track sync status
     const originalSyncLogs = syncLogsWithSheet;
@@ -3897,9 +3882,7 @@ function gisLoaded() {
 }
 
 /**
- * Initialize authentication.
- * Supabase owns the session (stored + auto-refreshed by supabase-js);
- * Google One Tap provides silent sign-in via supabase.auth.signInWithIdToken().
+ * Initialize authentication (Supabase session + Google One Tap).
  */
 async function initGoogleApi() {
     if (initInProgress) return;
@@ -3909,7 +3892,7 @@ async function initGoogleApi() {
     try {
         await gisLoaded();
 
-        // Waits for supabase-js to restore a stored session or consume an OAuth redirect
+        // Restores a stored session or consumes an OAuth redirect
         const { data: { session } } = await supabaseClient.auth.getSession();
 
         // Restore the course anchor saved before an OAuth redirect
@@ -3924,9 +3907,7 @@ async function initGoogleApi() {
         if (session) {
             onSuccessfulAuth(true);
         } else {
-            // Only show One Tap if we are NOT signed in.
-            // Supabase enforces nonce checks: Google gets the SHA-256 hash,
-            // signInWithIdToken() gets the raw nonce for verification.
+            // Not signed in: show One Tap (hashed nonce to Google, raw to Supabase)
             oneTapRawNonce = crypto.randomUUID();
             const hashedNonce = await sha256Hex(oneTapRawNonce);
 
@@ -3967,6 +3948,13 @@ async function initGoogleApi() {
 */
 async function onSuccessfulAuth(isRestore = false) {
     isSignedIn = true;
+
+    // Deep link from an email: open the RLS-protected attachment after sign-in
+    const attachmentParam = new URLSearchParams(window.location.search).get('attachment');
+    if (attachmentParam) {
+        history.replaceState(null, null, window.location.pathname + window.location.hash);
+        resolveEmailAttachmentLink(attachmentParam);
+    }
 
     // Show cat companion with transition
     const cat = document.getElementById('cat-companion');
@@ -4117,7 +4105,7 @@ async function onSuccessfulAuth(isRestore = false) {
         })();
 
         // --- PHASE 4: SESSION AUTO-DESTRUCT (KIOSK ONLY) ---
-        const isKioskMode = !!localStorage.getItem(KIOSK_TOKEN_KEY);
+        const isKioskMode = !!localStorage.getItem(KIOSK_MODE_KEY);
 
         if (isKioskMode) {
             // Set this to MATCH your Backend.js SESSION_DURATION (in milliseconds)
@@ -4127,9 +4115,8 @@ async function onSuccessfulAuth(isRestore = false) {
             if (window.sessionTimer) clearTimeout(window.sessionTimer);
 
             window.sessionTimer = setTimeout(() => {
-                console.warn("Kiosk session time limit reached. Reloading...");
-                localStorage.removeItem(KIOSK_TOKEN_KEY);
-                window.location.reload();
+                console.warn("Kiosk session time limit reached. Signing out...");
+                handleSignoutClick(); // clears the kiosk flag, ends the session, reloads
             }, SESSION_TIMEOUT_MS);
         }
 
@@ -4194,10 +4181,6 @@ function cleanupOldLocalStorage() {
 
 
 
-/**
- * Fetch user info (profile) from Google.
- * @returns {Promise} A promise that resolves when user info is fetched.
- */
 function normalizeGooglePhotoUrl(url) {
     if (!url) return url;
     // Strip any existing size param, then append =s96-c for the CDN-cached 96px version.
@@ -5342,7 +5325,8 @@ function showPermissionDetailsDialog(data, isReadOnly = false) {
 
     let attachmentHtml = '<span style="opacity:0.5; font-style:italic;">No attachment</span>';
     if (data.attachmentUrl) {
-        attachmentHtml = `<a href="${data.attachmentUrl}" target="_blank" class="btn-attachment"><i class="fa-solid fa-paperclip"></i> View Document</a>`;
+        // openAttachment() handles both legacy Drive URLs and Storage paths
+        attachmentHtml = `<a href="#" data-att="${escapeHtml(data.attachmentUrl)}" onclick="openAttachment(this.dataset.att); return false;" class="btn-attachment"><i class="fa-solid fa-paperclip"></i> View Document</a>`;
     }
 
     // Determine Action Buttons based on context
@@ -5457,9 +5441,11 @@ function showRequestPermissionDialog() {
     dialog.setAttribute('class', 'dialog');
     dialog.setAttribute('role', 'dialog');
 
-    const courseOptions = Object.keys(courseInfoMap).sort().map(courseName =>
-        `<option value="${escapeHtml(courseName)}">${courseName.replace(/_/g, ' ')}</option>`
-    ).join('');
+    const courseOptions = Object.keys(courseInfoMap).sort()
+        .filter(courseName => !courseInfoMap[courseName]?.archived)
+        .map(courseName =>
+            `<option value="${escapeHtml(courseName)}">${courseName.replace(/_/g, ' ')}</option>`
+        ).join('');
 
     const hoursList = ['8:40–9:30', '9:40–10:30', '10:40–11:30', '11:40–12:30', '12:40–13:30', '13:40–14:30', '14:40–15:30', '15:40–16:30', '16:00–16:50', '17:00–17:50', '18:00–18:50', '19:00–19:50'];
     const hourButtons = hoursList.map(h => `<button type="button" class="toggle-button" data-value="${h}" style="font-family:'Google Sans Flex', sans-serif; overflow:visible; text-overflow:clip; font-size:0.8em; padding:10px 2px;">${h}</button>`).join('');
@@ -5547,7 +5533,7 @@ function showRequestPermissionDialog() {
         <label class="dialog-label-fixed" id="request-file-label" style="margin-top:10px;">Document</label>
         <div class="form-group-control">
            <input type="file" id="request-file-upload" class="form-control" accept=".pdf,image/*">
-           <small style="opacity:0.7;">Max 10MB</small>
+           <small style="opacity:0.7;">Max 5 MB</small>
         </div>
     </div>
 
@@ -5974,6 +5960,16 @@ function showRequestPermissionDialog() {
             else if (explanation.length < 50) errors.push("Please provide more detail for personal matters (at least 50 characters).");
         }
 
+        // 4. Attachment validation (UX only — the Storage bucket enforces the same limits)
+        if (file) {
+            const ALLOWED_FILE_TYPES = [
+                'application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/heic',
+                'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+            ];
+            if (file.size > 5 * 1024 * 1024) errors.push("Attachment is too large (max 5 MB).");
+            if (file.type && !ALLOWED_FILE_TYPES.includes(file.type)) errors.push("Unsupported file type. Use a PDF, an image, or a Word document.");
+        }
+
         if (errors.length > 0) {
             showNotification('warning', 'Missing Info', errors.join('<br>'));
             return;
@@ -5994,18 +5990,9 @@ function showRequestPermissionDialog() {
             session: session
         };
 
-        if (file) {
-            const reader = new FileReader();
-            reader.readAsDataURL(file);
-            reader.onload = () => {
-                payload.fileData = reader.result;
-                payload.fileName = file.name;
-                payload.fileType = file.type;
-                sendRequest(payload);
-            };
-        } else {
-            sendRequest(payload);
-        }
+        // The file is uploaded straight to Supabase Storage by the submit handler
+        if (file) payload.file = file;
+        sendRequest(payload);
     });
 
     async function sendRequest(payload) {
@@ -6322,73 +6309,607 @@ function showRejectDialog(registration) {
     });
 }
 
-async function callWebApp(action, payload = {}, method = 'POST') {
-    // Kiosk token takes priority; otherwise the Supabase session JWT
-    // (getSession() transparently refreshes an expired session).
-    let token = localStorage.getItem(KIOSK_TOKEN_KEY);
-    if (!token) {
-        const { data: { session } } = await supabaseClient.auth.getSession();
-        token = session?.access_token;
+async function callWebApp(action, payload = {}) {
+    try {
+        return await callSupabase(action, payload);
+    } catch (error) {
+        console.error(`Error calling Supabase action "${action}":`, error);
+        throw error;
     }
-    if (!token) {
+}
+
+// Sends a transactional email via the send-email Edge Function
+async function invokeSendEmail(body) {
+    const { data, error } = await supabaseClient.functions.invoke('send-email', { body });
+    if (error) throw new Error('Email sending failed: ' + error.message);
+    if (data && data.result === 'error') throw new Error('Email sending failed: ' + data.message);
+}
+
+// Opens an attachment: old rows hold full Drive URLs, new rows hold a Storage path
+async function openAttachment(stored) {
+    if (!stored) return;
+    if (/^https?:\/\//i.test(stored)) { window.open(stored, '_blank'); return; }
+    const { data, error } = await supabaseClient.storage
+        .from(ATTACHMENTS_BUCKET)
+        .createSignedUrl(stored, 300);
+    if (error || !data) {
+        showNotification('error', 'Attachment', 'Could not open the attachment.');
+        return;
+    }
+    window.open(data.signedUrl, '_blank');
+}
+window.openAttachment = openAttachment;
+
+// Same-tab variant for ?attachment= deep links from emails
+async function resolveEmailAttachmentLink(stored) {
+    if (/^https?:\/\//i.test(stored)) { window.location.href = stored; return; }
+    const { data, error } = await supabaseClient.storage
+        .from(ATTACHMENTS_BUCKET)
+        .createSignedUrl(stored, 300);
+    if (error || !data) {
+        showNotification('error', 'Attachment', 'Could not open the attachment. Only course admins and the requester can view it.');
+        return;
+    }
+    window.location.href = data.signedUrl;
+}
+
+// --- Direct path: Supabase under RLS (queries + SECURITY DEFINER RPCs) ---
+
+// Unwraps a supabase-js response, throwing on error
+function sbUnwrap({ data, error }) {
+    if (error) throw new Error(error.message);
+    return data;
+}
+
+async function sbSessionEmail() {
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    if (!session) {
         handleSignoutClick();
         throw new Error("User not signed in or token expired.");
     }
+    return (session.user.email || '').toLowerCase();
+}
 
-    let url = BRAIN_URL;
-    const options = {
-        method: method,
-        redirect: 'follow',  // IMPORTANT: Must include this
-    };
-
-    // Add context parameters needed by Apps Script
-    payload.logsSpreadsheetId = LOGS_SPREADSHEET_ID;
-    if (!('courseName' in payload)) { // Check if courseName is not already set
-        payload.courseName = currentCourse || '';
-    }
-    payload.access_token = token;
-
-    if (method === 'GET') {
-        const params = new URLSearchParams(payload);
-        params.append('action', action);
-        url += '?' + params.toString();
-    } else { // POST
-        options.headers = {
-            'Content-Type': 'text/plain;charset=utf-8'
+function sbMapCourseInfo(rows) {
+    const courseInfoMap = {};
+    (rows || []).forEach(row => {
+        if (!row.name) return;
+        courseInfoMap[row.name] = {
+            startDate: row.start_date || '',
+            endDate: row.end_date || '',
+            holidayWeeks: row.holiday_weeks != null ? row.holiday_weeks.toString() : '',
+            holidayStartDate: row.holiday_start_date || '',
+            defaultHours: row.default_hours != null ? row.default_hours.toString() : '',
+            eisId: row.eis_id || '',
+            adminEmails: row.admin_emails || '',
+            availableSections: row.available_sections || '',
+            archived: row.archived || false
         };
-        payload.action = action;
-        options.body = JSON.stringify(payload);
+    });
+    return courseInfoMap;
+}
+
+function sbMapDatabase(rows) {
+    const database = {};
+    (rows || []).forEach(row => {
+        if (row.id && row.uids && row.uids.length > 0) {
+            database[row.id] = {
+                name: row.name || '',
+                email: row.email || '',
+                uids: row.uids
+            };
+        }
+    });
+    return database;
+}
+
+async function sbGetAdminStatus() {
+    return sbUnwrap(await supabaseClient.rpc('check_admin_status'));
+}
+
+async function sbGetCourseInfo() {
+    const rows = sbUnwrap(await supabaseClient.from('courses')
+        .select('name,start_date,end_date,holiday_weeks,holiday_start_date,default_hours,eis_id,admin_emails,available_sections,archived'));
+    return sbMapCourseInfo(rows);
+}
+
+async function sbGetDatabase() {
+    const rows = sbUnwrap(await supabaseClient.from('students').select('id,name,email,uids'));
+    return sbMapDatabase(rows);
+}
+
+async function sbGetMyUids() {
+    const email = await sbSessionEmail();
+    const rows = sbUnwrap(await supabaseClient.from('students')
+        .select('uids').ilike('email', email));
+    const uids = [];
+    (rows || []).forEach(r => { if (r.uids) uids.push(...r.uids); });
+    return [...new Set(uids)];
+}
+
+// { courseName: true } map of courses visible to the current user
+async function sbGetAvailableCourses(adminStatus) {
+    const status = adminStatus || await sbGetAdminStatus();
+    const result = {};
+
+    if (status.courses && status.courses.length > 0) {
+        status.courses.forEach(name => { result[name] = true; });
+        return result;
     }
+    if (status.isGlobalAdmin) {
+        const rows = sbUnwrap(await supabaseClient.from('courses').select('name'));
+        (rows || []).forEach(c => { if (c.name) result[c.name] = true; });
+        return result;
+    }
+    if (status.isAdmin) return result;
 
-    try {
-        const response = await fetch(url, options);
+    // Student path: courses where they have attendance logs
+    const uids = await sbGetMyUids();
+    if (uids.length === 0) return result;
+    const rows = sbUnwrap(await supabaseClient.from('attendance_logs')
+        .select('course_name').in('uid', uids));
+    (rows || []).forEach(log => { if (log.course_name) result[log.course_name] = true; });
+    return result;
+}
 
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+async function callSupabase(action, payload = {}) {
+    const courseName = ('courseName' in payload) ? (payload.courseName || '') : (currentCourse || '');
+
+    switch (action) {
+
+        // ------------------------- reads -------------------------
+
+        case 'getBootData': {
+            const adminStatus = await sbGetAdminStatus();
+            const [courses, database, courseInfo] = await Promise.all([
+                sbGetAvailableCourses(adminStatus),
+                sbGetDatabase(),
+                sbGetCourseInfo()
+            ]);
+            return { result: 'success', adminStatus, courses, database, courseInfo };
         }
 
-        const data = await response.json();
+        case 'checkAdminStatus':
+            return sbGetAdminStatus();
 
-        if (data && data.result === 'error') {
-            // --- HANDLE SESSION EXPIRY ---
-            if (data.message === 'KIOSK_SESSION_EXPIRED') {
-                console.warn("Kiosk session expired. Reloading.");
-                localStorage.removeItem(KIOSK_TOKEN_KEY);
+        case 'getDatabase':
+            return sbGetDatabase();
 
-                // Optional: Show a quick alert before reloading
-                document.body.innerHTML = `<div style="display:flex;justify-content:center;align-items:center;height:100vh;flex-direction:column;font-family:sans-serif;"><h1>Session Expired</h1><p>Refreshing...</p></div>`;
+        case 'getCourseInfo':
+            return sbGetCourseInfo();
 
-                setTimeout(() => window.location.reload(), 1000);
-                throw new Error("Session expired"); // Stop execution
+        case 'getAvailableCourses':
+            return sbGetAvailableCourses();
+
+        case 'getCourseLogs_Admin': {
+            const [tombstoneRows, logRows] = await Promise.all([
+                supabaseClient.from('deleted_logs')
+                    .select('log_id,deleted_at').eq('course_name', courseName).then(sbUnwrap),
+                supabaseClient.from('attendance_logs')
+                    .select('uid,timestamp,log_id,manual,version,updated_at,updated_by,session')
+                    .eq('course_name', courseName).then(sbUnwrap)
+            ]);
+
+            const deletedMap = {};
+            (tombstoneRows || []).forEach(row => {
+                const t = new Date(row.deleted_at).getTime();
+                if (!deletedMap[row.log_id] || t > deletedMap[row.log_id]) deletedMap[row.log_id] = t;
+            });
+
+            const logs = (logRows || [])
+                .filter(row => {
+                    const updatedAt = row.updated_at ? new Date(row.updated_at).getTime() : 0;
+                    return !(deletedMap[row.log_id] && updatedAt < deletedMap[row.log_id]);
+                })
+                .map(row => ({
+                    uid: row.uid,
+                    timestamp: new Date(row.timestamp).getTime(),
+                    id: row.log_id,
+                    manual: row.manual || false,
+                    version: row.version || 1,
+                    updatedAt: row.updated_at ? new Date(row.updated_at).getTime() : 0,
+                    updatedBy: row.updated_by || '',
+                    session: row.session || ''
+                }));
+
+            return {
+                logs,
+                tombstones: Object.keys(deletedMap).map(id => ({ id, deletedAt: deletedMap[id] }))
+            };
+        }
+
+        case 'getStudentLogs': {
+            const uids = await sbGetMyUids();
+            if (uids.length === 0) return [];
+            const rows = sbUnwrap(await supabaseClient.from('attendance_logs')
+                .select('uid,timestamp,log_id,manual,updated_by,session')
+                .in('uid', uids).eq('course_name', courseName));
+            return (rows || []).map(row => ({
+                uid: row.uid,
+                timestamp: new Date(row.timestamp).getTime(),
+                id: row.log_id,
+                manual: row.manual || false,
+                editedBy: row.updated_by || '',
+                session: row.session || ''
+            }));
+        }
+
+        case 'getPendingRegistrations': {
+            const rows = sbUnwrap(await supabaseClient.from('registrations')
+                .select('id,name,uid,email,submitted_at,sent_by')
+                .order('submitted_at', { ascending: true }));
+            return (rows || []).map(row => ({
+                rowNumber: row.id,
+                name: row.name || '',
+                uid: row.uid || '',
+                email: row.email || '',
+                timestamp: row.submitted_at || '',
+                sentBy: row.sent_by || ''
+            }));
+        }
+
+        case 'getPendingAbsences': {
+            const rows = sbUnwrap(await supabaseClient.from('absences')
+                .select('*').eq('status', 'Pending')
+                .order('submitted_at', { ascending: true }));
+            return (rows || []).map(row => ({
+                rowNumber: row.id,
+                requestID: row.request_id,
+                name: row.student_name,
+                email: row.student_email,
+                course: row.course || '',
+                session: row.session || '',
+                absenceDate: row.absence_date,
+                hours: row.hours,
+                reasonType: row.reason_type,
+                description: row.description,
+                attachmentURL: row.attachment_url || ''
+            }));
+        }
+
+        case 'getAbsenceHistory_Admin': {
+            const rows = sbUnwrap(await supabaseClient.from('absences')
+                .select('*').order('submitted_at', { ascending: false }));
+            return (rows || []).map(row => ({
+                status: row.status,
+                requestID: row.request_id,
+                studentName: row.student_name,
+                studentEmail: row.student_email,
+                course: row.course || '',
+                session: row.session || '',
+                absenceDate: row.absence_date,
+                hours: row.hours,
+                reasonType: row.reason_type,
+                description: row.description,
+                attachmentUrl: row.attachment_url || '',
+                adminNotes: row.admin_notes || ''
+            }));
+        }
+
+        case 'getStudentAbsenceRequests': {
+            const email = await sbSessionEmail();
+            const rows = sbUnwrap(await supabaseClient.from('absences')
+                .select('status,course,absence_date,hours,reason_type,admin_notes')
+                .ilike('student_email', email)
+                .order('submitted_at', { ascending: false }));
+            return (rows || []).map(row => ({
+                status: row.status,
+                course: row.course,
+                absenceDate: row.absence_date,
+                hours: row.hours,
+                reason: row.reason_type,
+                adminNotes: row.admin_notes || ''
+            }));
+        }
+
+        case 'getGlobalSettingsData': {
+            const [staffRows, deviceRows] = await Promise.all([
+                supabaseClient.from('staff')
+                    .select('id,name,uid,email,role').order('id', { ascending: true }).then(sbUnwrap),
+                supabaseClient.from('trusted_devices')
+                    .select('id,name,device_id,owner,registered_at').order('id', { ascending: true }).then(sbUnwrap)
+            ]);
+            return {
+                staff: (staffRows || []).map(row => ({
+                    rowIndex: row.id, name: row.name, uid: row.uid,
+                    email: row.email, role: row.role || 'Student'
+                })),
+                devices: (deviceRows || []).map(row => ({
+                    rowIndex: row.id, name: row.name, id: row.device_id,
+                    owner: row.owner, date: row.registered_at || ''
+                }))
+            };
+        }
+
+        // ------------------------- writes -------------------------
+
+        case 'submitRegistration': {
+            const email = await sbSessionEmail();
+            const sentBy = payload.sentBy
+                ? (payload.sentBy.name || payload.sentBy.email || email)
+                : email;
+            sbUnwrap(await supabaseClient.from('registrations').insert({
+                name: payload.name || '',
+                uid: payload.uid || '',
+                email: payload.email || '',
+                submitted_at: new Date().toISOString(),
+                sent_by: sentBy
+            }));
+            return { result: 'success', message: 'Registration submitted successfully' };
+        }
+
+        case 'deleteRegistration': {
+            const id = parseInt(payload.rowNumber);
+            if (!id || isNaN(id)) throw new Error('Invalid row number provided');
+            sbUnwrap(await supabaseClient.from('registrations').delete().eq('id', id));
+            return { result: 'success', message: 'Registration deleted' };
+        }
+
+        case 'deleteAbsenceRequest': {
+            sbUnwrap(await supabaseClient.from('absences').delete()
+                .eq('request_id', payload.requestID));
+            return { result: 'success', message: 'Request deleted.' };
+        }
+
+        case 'addEntryToDatabase_Admin': {
+            sbUnwrap(await supabaseClient.from('students').insert({
+                name: payload.name,
+                email: payload.email || '',
+                uids: payload.uid ? [payload.uid.trim()] : []
+            }));
+            return { result: 'success', message: 'Entry added directly to database' };
+        }
+
+        case 'updateStudentInDatabase_Admin': {
+            const patch = {};
+            if (payload.name !== undefined) patch.name = payload.name;
+            if (payload.email !== undefined) patch.email = payload.email;
+            if (payload.uids !== undefined) {
+                patch.uids = Array.isArray(payload.uids)
+                    ? payload.uids
+                    : payload.uids.toString().split(',').map(u => u.trim()).filter(Boolean);
+            }
+            sbUnwrap(await supabaseClient.from('students').update(patch)
+                .eq('id', parseInt(payload.dbKey)));
+            return { result: 'success', message: 'Student updated successfully' };
+        }
+
+        case 'deleteEntryFromDatabase_Admin': {
+            sbUnwrap(await supabaseClient.from('students').delete()
+                .eq('id', parseInt(payload.dbKey)));
+            return { result: 'success', message: 'Student deleted successfully' };
+        }
+
+        case 'manageStaff_Admin': {
+            let role = 'Student';
+            if (payload.role === 'Global') role = 'Global';
+            if (payload.role === 'Lecturer') role = 'Lecturer';
+
+            if (payload.actionType === 'add') {
+                sbUnwrap(await supabaseClient.from('staff').insert({
+                    name: payload.name, uid: payload.uid, email: payload.email, role
+                }));
+            } else if (payload.actionType === 'delete') {
+                sbUnwrap(await supabaseClient.from('staff').delete()
+                    .eq('id', parseInt(payload.rowIndex)));
+            } else if (payload.actionType === 'edit') {
+                sbUnwrap(await supabaseClient.from('staff').update({
+                    name: payload.name, uid: payload.uid, email: payload.email, role
+                }).eq('id', parseInt(payload.rowIndex)));
+            }
+            return { result: 'success' };
+        }
+
+        case 'registerDevice_Admin': {
+            const existing = sbUnwrap(await supabaseClient.from('trusted_devices')
+                .select('id').eq('device_id', payload.deviceId));
+            if (existing && existing.length > 0) throw new Error('Device already registered.');
+            sbUnwrap(await supabaseClient.from('trusted_devices').insert({
+                name: payload.deviceName,
+                device_id: payload.deviceId,
+                owner: await sbSessionEmail(),
+                registered_at: new Date().toISOString().split('T')[0]
+            }));
+            return { result: 'success' };
+        }
+
+        case 'deleteDevice_Admin': {
+            const id = parseInt(payload.rowIndex);
+            if (isNaN(id) || id < 1) throw new Error('Invalid row index provided');
+            sbUnwrap(await supabaseClient.from('trusted_devices').delete().eq('id', id));
+            return { result: 'success' };
+        }
+
+        // ------------------- multi-step writes (RPCs) -------------------
+
+        case 'deleteLog_Admin': {
+            if (!payload.courseName || !payload.logId) throw new Error('Missing required parameters');
+            return sbUnwrap(await supabaseClient.rpc('delete_log', {
+                p_course: payload.courseName, p_log_id: payload.logId
+            }));
+        }
+
+        case 'syncCourseLogs_Admin': {
+            return sbUnwrap(await supabaseClient.rpc('sync_course_logs', {
+                p_course: courseName,
+                p_logs: payload.logs || [],
+                p_tombstones: payload.tombstones || []
+            }));
+        }
+
+        case 'syncDatabase_Admin': {
+            return sbUnwrap(await supabaseClient.rpc('sync_students', {
+                p_students: payload.databaseData || {}
+            }));
+        }
+
+        case 'saveCourseSettings_Admin': {
+            const result = sbUnwrap(await supabaseClient.rpc('save_course_settings', { p: payload }));
+            if (result && result.result === 'error') throw new Error(result.message);
+            return result;
+        }
+
+        // --------------- email / attachment workflows ---------------
+
+        case 'submitAbsenceRequest': {
+            const requestID = `${Date.now()}_${payload.email}`;
+            let attachmentPath = '';
+
+            if (payload.file) {
+                const { data: { session } } = await supabaseClient.auth.getSession();
+                const safeName = payload.file.name.replace(/[^\w.\-]+/g, '_');
+                attachmentPath = `${session.user.id}/${Date.now()}_${safeName}`;
+                const { error: uploadError } = await supabaseClient.storage
+                    .from(ATTACHMENTS_BUCKET)
+                    .upload(attachmentPath, payload.file, { contentType: payload.file.type });
+                if (uploadError) throw new Error('Could not upload attachment: ' + uploadError.message);
             }
 
-            throw new Error(data.message || 'Script execution failed.');
-        }
-        return data;
+            sbUnwrap(await supabaseClient.from('absences').insert({
+                request_id: requestID,
+                submitted_at: new Date().toISOString(),
+                status: 'Pending',
+                student_name: payload.name,
+                student_email: payload.email,
+                course: payload.course,
+                session: payload.session || '',
+                absence_date: payload.absenceDate,
+                hours: payload.hours,
+                reason_type: payload.reasonType,
+                description: payload.description,
+                admin_notes: '',
+                attachment_url: attachmentPath
+            }));
 
-    } catch (error) {
-        console.error(`Error calling Web App action "${action}" via fetch:`, error);
-        throw error;
+            // Notify admins — a failed email must not lose the submitted request
+            try {
+                await invokeSendEmail({ template: 'absence_submitted', request_id: requestID });
+            } catch (e) {
+                console.warn('Admin notification email failed:', e);
+            }
+
+            return { result: 'success', message: 'Absence request submitted successfully' };
+        }
+
+        case 'approveAbsenceRequest': {
+            const { requestID, studentEmail, originalHours, approvedHours, customMessage } = payload;
+            if (!approvedHours || approvedHours.length === 0) throw new Error('No hours were selected for approval.');
+
+            const reqRows = sbUnwrap(await supabaseClient.from('absences')
+                .select('course,session,absence_date').eq('request_id', requestID));
+            if (!reqRows || reqRows.length === 0) throw new Error(`Request ID ${requestID} not found.`);
+            const req = reqRows[0];
+
+            const studentRows = sbUnwrap(await supabaseClient.from('students')
+                .select('uids').ilike('email', studentEmail));
+            const studentUid = studentRows?.[0]?.uids?.[0];
+            if (!studentUid) throw new Error(`Student ${studentEmail} not found in database.`);
+
+            // Build the manual logs for the approved hours
+            const [year, month, day] = String(req.absence_date).split('-').map(Number);
+            const adminEmail = await sbSessionEmail();
+            const newLogs = approvedHours.split(',').map(h => h.trim()).map(hourStr => {
+                const timeMatch = hourStr.match(/(\d{1,2}):(\d{2})/);
+                if (!timeMatch) throw new Error(`Invalid time format: ${hourStr}`);
+                const ts = new Date(year, month - 1, day, Number(timeMatch[1]), Number(timeMatch[2])).getTime();
+                return {
+                    uid: studentUid, timestamp: ts, id: `${ts}_${studentUid}_manual`,
+                    manual: true, version: 1, updatedAt: Date.now(), updatedBy: adminEmail,
+                    course: req.course, session: req.session || 'Default'
+                };
+            });
+
+            // Atomic: insert logs + flip the request status
+            sbUnwrap(await supabaseClient.rpc('approve_absence', {
+                p_request_id: requestID,
+                p_approved_hours: approvedHours,
+                p_logs: newLogs
+            }));
+
+            await invokeSendEmail({
+                template: 'absence_approved',
+                request_id: requestID, approvedHours, originalHours, customMessage
+            });
+
+            return { result: 'success', message: `Approved ${newLogs.length} logs.`, newLogs };
+        }
+
+        case 'rejectAbsenceRequest': {
+            const adminEmail = await sbSessionEmail();
+            sbUnwrap(await supabaseClient.from('absences').update({
+                status: 'Rejected',
+                admin_notes: payload.rejectionMessage || `Rejected by ${adminEmail}`
+            }).eq('request_id', payload.requestID));
+
+            await invokeSendEmail({
+                template: 'absence_rejected',
+                request_id: payload.requestID,
+                rejectionMessage: payload.rejectionMessage || ''
+            });
+
+            return { result: 'success', message: 'Request rejected and email sent.' };
+        }
+
+        case 'approveRegistration': {
+            if (payload.approvalMode === 'custom_replace') {
+                const existing = sbUnwrap(await supabaseClient.from('students')
+                    .select('id,uids').eq('id', parseInt(payload.duplicateRowIndex)));
+                if (!existing || existing.length === 0) throw new Error('Could not find existing student to update.');
+
+                const student = existing[0];
+                const updates = payload.updates || {};
+                const patch = {};
+                if (updates.name) patch.name = payload.name;
+                if (updates.email) patch.email = payload.email;
+                if (updates.uid_action) {
+                    let uids = student.uids || [];
+                    if (updates.uid_action === 'merge') {
+                        if (!uids.includes(payload.uid.trim())) uids = [...uids, payload.uid.trim()];
+                        patch.uids = uids;
+                    } else if (updates.uid_action === 'replace') {
+                        patch.uids = [payload.uid.trim()];
+                    }
+                }
+                if (Object.keys(patch).length > 0) {
+                    sbUnwrap(await supabaseClient.from('students').update(patch).eq('id', student.id));
+                }
+            } else {
+                sbUnwrap(await supabaseClient.from('students').insert({
+                    name: payload.name,
+                    email: payload.email,
+                    uids: payload.uid ? [payload.uid.trim()] : []
+                }));
+            }
+
+            const regId = parseInt(payload.rowNumber);
+            if (regId && !isNaN(regId)) {
+                sbUnwrap(await supabaseClient.from('registrations').delete().eq('id', regId));
+            }
+
+            await invokeSendEmail({
+                template: 'registration_approved',
+                name: payload.name || '', email: payload.email || ''
+            });
+
+            return { result: 'success', message: 'Registration approved and processed' };
+        }
+
+        case 'rejectRegistration': {
+            sbUnwrap(await supabaseClient.from('registrations').delete()
+                .eq('id', parseInt(payload.rowNumber)));
+
+            if (payload.email && payload.message) {
+                await invokeSendEmail({
+                    template: 'registration_rejected',
+                    name: payload.name || '', email: payload.email, message: payload.message
+                });
+            }
+
+            return { result: 'success', message: 'Registration rejected' };
+        }
+
+        default:
+            throw new Error(`Unknown action: ${action}`);
     }
 }
 
@@ -6574,11 +7095,11 @@ async function handleManualRefresh(buttonId) {
         showNotification('error', 'Refresh Failed', `${errorMsg} ${error.message}`);
         updateSyncStatus("Error", "error"); // Show error status
     } finally {
-        // Stop spinner
+        // Restore the original <i> icon (Font Awesome renders <i> as <svg>)
         const currentIcon = refreshBtn.querySelector('i, svg');
         if (currentIcon) {
             const restoreI = document.createElement('i');
-            restoreI.className = originalIconClass;
+            restoreI.className = 'fa-solid fa-arrows-rotate';
             currentIcon.replaceWith(restoreI);
         }
         refreshBtn.disabled = false;
@@ -6701,9 +7222,8 @@ function getSuggestedDate(metadata) {
 }
 
 function handleSignoutClick() {
-    // --- STANDARD SIGN-OUT ---
-    // Clear kiosk + Supabase sessions and reload to ensure a clean state.
-    localStorage.removeItem(KIOSK_TOKEN_KEY);
+    // Clear kiosk + Supabase sessions and reload to ensure a clean state
+    localStorage.removeItem(KIOSK_MODE_KEY);
     localStorage.removeItem('last_active_course');
 
     // Stop One Tap from silently signing the user straight back in
@@ -7026,11 +7546,10 @@ async function loadCourseFromLocalStorage(courseName) {
 
 // Add this to track authentication state better
 function setupAuthStateTracking() {
-    // Kiosk tokens are validated server-side and cannot be refreshed.
-    if (localStorage.getItem(KIOSK_TOKEN_KEY)) return;
+    // Kiosk sessions end via the auto-destruct timer; skip the expiry warning
+    if (localStorage.getItem(KIOSK_MODE_KEY)) return;
 
-    // supabase-js auto-refreshes the session in the background;
-    // we only need to react if the session is lost for good.
+    // React only if the session is lost for good (supabase-js auto-refreshes)
     supabaseClient.auth.onAuthStateChange((event) => {
         if (event === 'SIGNED_OUT' && isSignedIn) {
             isSignedIn = false;
@@ -7038,45 +7557,6 @@ function setupAuthStateTracking() {
             updateAuthUI();
         }
     });
-}
-
-// Show a warning in the UI about authentication issues
-function updateAuthWarningUI(show) {
-    const userContainer = document.getElementById('user-container');
-
-    if (show && userContainer) {
-        // Add warning indicator
-        if (!document.getElementById('auth-warning')) {
-            const warning = document.createElement('div');
-            warning.id = 'auth-warning';
-            warning.style.backgroundColor = '#fb8c00';
-            warning.style.color = 'white';
-            warning.style.padding = '2px 8px';
-            warning.style.borderRadius = '4px';
-            warning.style.fontSize = '0.7em';
-            warning.style.marginLeft = '5px';
-            warning.style.animation = 'pulse 2s infinite';
-            warning.textContent = 'Session Expiring';
-            warning.title = 'Your login session may be expiring soon';
-
-            // Add animation
-            const style = document.createElement('style');
-            style.textContent = `
-                @keyframes pulse {
-                    0% { opacity: 0.6; }
-                    50% { opacity: 1; }
-                    100% { opacity: 0.6; }
-                }
-            `;
-            document.head.appendChild(style);
-
-            userContainer.appendChild(warning);
-        }
-    } else {
-        // Remove warning if present
-        const warning = document.getElementById('auth-warning');
-        if (warning) warning.remove();
-    }
 }
 
 /**
@@ -7186,7 +7666,7 @@ async function loadAllCourseLogsForCourseAdmin() {
         if (studentLogCache[course]) {
             courseData[course] = {
                 logs: studentLogCache[course],
-                tombstones: new Set() // Course admins don't use GAPI, so no tombstones
+                tombstones: new Set() // Backend already applies tombstones to these logs
             };
         }
     });
@@ -7201,7 +7681,7 @@ async function loadAllCourseLogsForStudent() {
     if (isGlobalAdmin || !isOnline || !isSignedIn) {
         loadingTasks.delete('courses'); // CRITICAL: Remove from loading tasks
         loadingTasks.delete('database');
-        loadingTasks.delete('gapi');
+        loadingTasks.delete('session');
         checkLoadingCompletion();
         return;
     }
@@ -7417,25 +7897,6 @@ async function fetchDatabaseFromSheet() {
 }
 
 /**
- * Get the actual sheet name for a course (handles display name mapping)
- */
-function getSheetNameForCourse(courseName) {
-    // If we have a mapping, use it, otherwise use the course name directly
-    return sheetNameMap[courseName] || courseName;
-}
-
-/**
- * Format a sheet name for the Google Sheets API
- * Encloses in single quotes if the name has spaces or special characters
- */
-function formatSheetName(sheetName) {
-    return sheetName.includes(' ') ||
-        sheetName.includes('!') ||
-        sheetName.includes('\'') ?
-        `'${sheetName}'` : sheetName;
-}
-
-/**
  * Returns the current active session string (e.g., "Theory A", "Lab", or "Default")
  */
 function getCurrentActiveSession() {
@@ -7462,24 +7923,6 @@ function touchLogForEdit(log, userEmail) {
     return log;
 }
 
-
-/**
-         * Converts a log object into an array for writing to the Google Sheet.
-         * @param {object} log - The log object.
-         * @returns {Array} The log data as a row array.
-         */
-function toSheetRow(log) {
-    return [
-        log.uid || '',
-        new Date(Number(log.timestamp || Date.now())).toISOString(),
-        log.id,
-        // Write an explicit string for 100% reliability with Google Sheets.
-        log.manual ? 'TRUE' : 'FALSE',
-        Number(log.version || 0),
-        new Date(Number(log.updatedAt || log.timestamp || Date.now())).toISOString(),
-        String(log.updatedBy || '')
-    ];
-}
 
 /**
  * Safely loads logs by prioritizing local data first.
@@ -10480,28 +10923,29 @@ async function handleNfcReading({ serialNumber }) {
 
         try {
             const myDeviceId = getDeviceFingerprint();
-            // Call Backend to check if this UID belongs to a staff member
-            const response = await fetch(BRAIN_URL, {
-                method: 'POST',
-                redirect: 'follow',
-                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                body: JSON.stringify({
-                    action: 'loginWithNfc',
-                    uid: serialNumber,
-                    deviceId: myDeviceId,
-                    logsSpreadsheetId: LOGS_SPREADSHEET_ID
-                })
+            // Ask the kiosk-login Edge Function if this UID belongs to a staff member
+            const { data, error } = await supabaseClient.functions.invoke('kiosk-login', {
+                body: { uid: serialNumber, deviceId: myDeviceId }
             });
+            if (error) throw error;
 
-            const data = await response.json();
-
-            if (data.result === 'success') {
+            if (data && data.result === 'success') {
                 // === ADMIN LOGIN SUCCESS ===
-                localStorage.setItem(KIOSK_TOKEN_KEY, data.token);
+                // Exchange the one-time token for a real Supabase session
+                const { error: otpError } = await supabaseClient.auth.verifyOtp({
+                    type: 'email',
+                    token_hash: data.token_hash
+                });
+                if (otpError) throw otpError;
+
+                localStorage.setItem(KIOSK_MODE_KEY, '1');
                 currentUser = data.user;
                 showNotification('success', 'Session Active', `Welcome, ${currentUser.name}`);
                 onSuccessfulAuth(false);
             } else {
+                if (data && data.result === 'error' && data.message) {
+                    showNotification('warning', 'Kiosk Login', data.message);
+                }
                 // === STUDENT CARD (GUEST MODE) ===
                 // Just show the UID
                 lastScannedUID = serialNumber;
