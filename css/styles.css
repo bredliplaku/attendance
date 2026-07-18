@@ -5861,7 +5861,7 @@
             /* Below dialogs (1000+) but above page content */
             cursor: pointer;
             transition: transform 0.2s ease;
-            width: 90px;
+            width: 100px;
             /* Adjust based on your image size */
         }
 
