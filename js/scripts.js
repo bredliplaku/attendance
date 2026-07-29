@@ -6265,7 +6265,7 @@ function showRejectDialog(registration) {
         firstName = registration.name.split(' ')[0];
         greeting = `Dear ${firstName},`;
     }
-    const defaultMessage = `${greeting}\nI hope this email finds you well.\n\nI am writing to inform you that your application for your Student ID Card has been rejected. This is typically because the information provided was incorrect or incomplete.\n\nPlease submit your registration again, ensuring all details are correct.\n\nBest,\nBredli`;
+    const defaultMessage = `I am writing to inform you that your application for your Student ID Card has been rejected. This is typically because the information provided was incorrect or incomplete.\n\nPlease submit your registration again, ensuring all details are correct.`;
 
     dialog.innerHTML = `
     <h3 class="dialog-title">Reject Application</h3>
