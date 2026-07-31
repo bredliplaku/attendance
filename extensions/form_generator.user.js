@@ -1,13 +1,13 @@
 // ==UserScript==
 // @name         EIS Attendance Sheet Generator
 // @namespace    https://bredliplaku.com/
-// @version      2.1
+// @version      2.2
 // @description  Generates attendance sheet that perfectly matches the original template with customizable fields
 // @author       Bredli Plaku
 // @match        https://eis.epoka.edu.al/courseattendance/*/editcl
 // @match        https://eis.epoka.edu.al/courseattendance/*/newcl
-// @updateURL    https://github.com/bredliplaku/bredliplaku.github.io/raw/refs/heads/main/attendance/extensions/form_generator.user.js
-// @downloadURL  https://github.com/bredliplaku/bredliplaku.github.io/raw/refs/heads/main/attendance/extensions/form_generator.user.js
+// @updateURL    https://github.com/bredliplaku/attendance/raw/refs/heads/main/extensions/form_generator.user.js
+// @downloadURL  https://github.com/bredliplaku/attendance/raw/refs/heads/main/extensions/form_generator.user.js
 // @grant        GM_addStyle
 // ==/UserScript==
 
@@ -548,6 +548,45 @@
         }
     `);
 
+    // Matches a standalone EIS status badge such as "Finalized" / "Finalised" /
+    // "Not Finalized", optionally bracketed.
+    const STATUS_BADGE_RE =
+        /^[([{]?\s*(?:not\s+|non[-\s]?)?finali[sz](?:ed|ing|ation)\s*[)\]}]?$/i;
+
+    // Strip the "Finalized"/"Finalised" status word EIS appends to a closed course.
+    // Only removes it when it trails the text (optionally wrapped in brackets or
+    // preceded by a separator), so a course actually named e.g. "Finalized Design"
+    // keeps its word.
+    function stripFinalizedStatus(text) {
+        const cleaned = text
+            .replace(
+                /\s*[-–—|,:;/]?\s*[([{]?\s*(?:not\s+|non[-\s]?)?finali[sz](?:ed|ing|ation)\s*[)\]}]?\s*$/i,
+                "",
+            )
+            .replace(/[\s\-–—|,:;/]+$/, "")
+            .trim();
+        // Never let the cleanup swallow the whole value
+        return cleaned || text.trim();
+    }
+
+    // Read an element's text with EIS status badges removed. Works on a clone so
+    // the page itself is never modified.
+    function getCourseText(elem) {
+        if (!elem) return "";
+
+        const clone = elem.cloneNode(true);
+        clone
+            .querySelectorAll("span, small, label, i, em, sup, .label, .badge")
+            .forEach((el) => {
+                if (STATUS_BADGE_RE.test(el.textContent.replace(/\s+/g, " ").trim())) {
+                    el.remove();
+                }
+            });
+
+        // Fallback for pages where the status is plain text rather than a badge
+        return stripFinalizedStatus(clone.textContent.replace(/\s+/g, " ").trim());
+    }
+
     // Improved logic to detect students with R or Ex labels (with careful name handling)
     function hasRLabel(studentNameCell, row) {
         // Check for label element
@@ -612,33 +651,18 @@
 
         // Get course details for code, name, and category
         const courseHeadingElem = document.querySelector(".course h4");
-        let courseName = courseHeadingElem
-            ? courseHeadingElem.textContent.trim()
-            : "Attendance Sheet";
+        const headingText = getCourseText(courseHeadingElem);
+        let courseName = headingText || "Attendance Sheet";
 
         const captionElem = document.querySelector(".course .caption");
         let courseCode = "";
         if (captionElem) {
-            courseCode = captionElem.textContent.replace(/\s+/g, " ").trim();
-
-            // Clean up redundant course codes at the start of the course name
-            // E.g. If code is "SWE / MTH 102" and name is "MTH 102 CALCULUS II", we want just "CALCULUS II"
-            if (courseCode && courseName !== "Attendance Sheet") {
-                const codeParts = courseCode
-                    .split("/")
-                    .map((p) => p.trim())
-                    .sort((a, b) => b.length - a.length);
-                for (const part of codeParts) {
-                    if (part && courseName.startsWith(part)) {
-                        courseName = courseName.substring(part.length).trim();
-                        // Additional safety clean up if there's a dangling dash
-                        if (courseName.startsWith("-")) {
-                            courseName = courseName.substring(1).trim();
-                        }
-                        break;
-                    }
-                }
-            }
+            // The caption carries the "Finalized" badge on closed courses - strip it
+            // here so the status word never reaches the title.
+            // The code itself is kept as-is: by design the title shows both the
+            // caption code and the full heading, e.g.
+            // "CEN / MTH 102 - MTH 102 CALCULUS II 2025".
+            courseCode = getCourseText(captionElem);
         }
 
         // Get category and group from list items
@@ -1172,7 +1196,7 @@
             }
         }
 
-        headerCells += `<th>Ex</th>`;
+        headerCells += `<th>EX</th>`;
         headerRow.innerHTML = headerCells;
 
         thead.appendChild(headerRow);
@@ -1261,9 +1285,9 @@
                 row.appendChild(dateCell);
             }
 
-            // Exempted indicator (Ex column)
+            // Exempted indicator (EX column)
             const exemptCell = document.createElement("td");
-            exemptCell.textContent = student.exempt ? "Ex" : "";
+            exemptCell.textContent = student.exempt ? "EX" : "";
             row.appendChild(exemptCell);
 
             tbody.appendChild(row);
@@ -1277,9 +1301,8 @@
         note.innerHTML = `
             <p style="margin-bottom: 10px;"><strong>NOTE:</strong></p>
             <p style="margin-bottom: 10px;">Students that are not listed in the attendance list will not be considered as enrolled in the course!</p>
-            <p>All attendance sheets should be delivered to department coordinators by the end of the week after recording</p>
-            <p style="margin-bottom: 10px;">the entries electronically through EIS system.</p>
-            <p style="margin-bottom: 10px;"><strong>R</strong> - Repeated Course, <strong>Ex</strong> - Exempted from attendances.</p>
+            <p style="margin-bottom: 10px;">All attendance sheets should be delivered to department coordinators by the end of the week after recording the entries electronically through EIS.</p>
+            <p style="margin-bottom: 10px;"><strong>R</strong> - Repeated Course, <strong>EX</strong> - Exempted from attendances.</p>
         `;
 
         const signature = document.createElement("div");
