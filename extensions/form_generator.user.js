@@ -1,14 +1,14 @@
 // ==UserScript==
 // @name         EIS Attendance Sheet Generator
 // @namespace    https://bredliplaku.com/
-// @version      2.3
+// @version      2.4
 // @description  Generates attendance sheet that perfectly matches the original template with customizable fields
 // @author       Bredli Plaku
 // @match        https://eis.epoka.edu.al/courseattendance/*/editcl
 // @match        https://eis.epoka.edu.al/courseattendance/*/newcl
 // @updateURL    https://github.com/bredliplaku/attendance/raw/refs/heads/main/extensions/form_generator.user.js
 // @downloadURL  https://github.com/bredliplaku/attendance/raw/refs/heads/main/extensions/form_generator.user.js
-// @icon         https://raw.githubusercontent.com/bredliplaku/attendance/refs/heads/main/favicon.png
+// @icon         https://raw.githubusercontent.com/bredliplaku/attendance/refs/heads/main/miscellaneous/EPOKA_icon.png
 // @grant        GM_addStyle
 // ==/UserScript==
 
