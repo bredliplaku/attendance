@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EIS Attendance Auto-Import
 // @namespace    https://bredliplaku.com/
-// @version      2.0
+// @version      2.1
 // @description  Automatically import attendance data from clipboard on EIS page load.
 // @author       Bredli Plaku
 // @match        https://eis.epoka.edu.al/courseattendance/*/newcl
