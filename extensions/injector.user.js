@@ -7,6 +7,7 @@
 // @match        https://eis.epoka.edu.al/courseattendance/*/newcl
 // @updateURL    https://github.com/bredliplaku/attendance/raw/refs/heads/main/extensions/injector.user.js
 // @downloadURL  https://github.com/bredliplaku/attendance/raw/refs/heads/main/extensions/injector.user.js
+// @icon         https://raw.githubusercontent.com/bredliplaku/attendance/refs/heads/main/favicon.png
 // @grant        none
 // @run-at       document-idle
 // ==/UserScript==
