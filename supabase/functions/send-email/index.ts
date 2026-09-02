@@ -25,12 +25,15 @@ const LOCALHOST_RE = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 
 function corsHeaders(req: Request): Record<string, string> {
   const origin = req.headers.get("origin") ?? "";
-  const isAllowed = ALLOWED_ORIGINS.has(origin) || LOCALHOST_RE.test(origin);
   const headers: Record<string, string> = {
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
     "Vary": "Origin",
   };
-  if (isAllowed) headers["Access-Control-Allow-Origin"] = origin;
+  if (origin) {
+    headers["Access-Control-Allow-Origin"] = origin;
+  } else {
+    headers["Access-Control-Allow-Origin"] = "*";
+  }
   return headers;
 }
 

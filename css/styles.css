@@ -2287,15 +2287,14 @@
             padding: 15px;
             margin-bottom: 12px;
             position: relative;
-            transition: transform 0.2s, box-shadow 0.2s;
             box-shadow: 0 2px 5px rgba(0, 0, 0, 0.03);
             border-left: 4px solid transparent;
             /* Color indicator */
         }
 
         .req-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
+            /* Hover effect removed as requested */
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.03);
         }
 
         /* Status Colors */
@@ -6084,4 +6083,117 @@
                 transform: scale(1) translateY(0);
                 opacity: 1;
             }
+        }
+
+        /* --- Unknown Name Badge in Logs Table --- */
+        .unknown-name-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 3px 8px;
+            background: rgba(255, 152, 0, 0.12);
+            color: #d35400;
+            border: 1px dashed rgba(255, 152, 0, 0.4);
+            border-radius: 6px;
+            font-family: monospace;
+            font-size: 0.95em;
+            font-weight: 600;
+        }
+
+        .dark-mode .unknown-name-badge {
+            background: rgba(255, 152, 0, 0.2);
+            color: #f39c12;
+            border-color: rgba(255, 152, 0, 0.5);
+        }
+
+        /* --- Settings Course List & Archived Accordion --- */
+        .settings-courses-group {
+            margin-bottom: 20px;
+        }
+
+        .settings-group-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .settings-archived-toggle {
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-top: 20px;
+            margin-bottom: 12px;
+            padding: 10px 14px;
+            background: rgba(0, 0, 0, 0.03);
+            border: 1px solid rgba(0, 0, 0, 0.06);
+            border-radius: 8px;
+            user-select: none;
+            -webkit-user-select: none;
+            transition: background 0.15s ease;
+        }
+
+        .settings-archived-toggle:hover {
+            background: rgba(0, 0, 0, 0.06);
+        }
+
+        .dark-mode .settings-archived-toggle {
+            background: rgba(255, 255, 255, 0.05);
+            border-color: rgba(255, 255, 255, 0.08);
+        }
+
+        .dark-mode .settings-archived-toggle:hover {
+            background: rgba(255, 255, 255, 0.09);
+        }
+
+        #archived-toggle-chevron {
+            display: inline-block;
+            transition: transform 0.2s ease;
+            margin-right: 2px;
+        }
+
+        #archived-toggle-chevron.is-open {
+            transform: rotate(90deg);
+        }
+
+        .settings-archived-collapse-wrapper {
+            display: none;
+            overflow: hidden;
+        }
+
+        .settings-archived-collapse-wrapper.is-open {
+            display: block;
+        }
+
+        .badge-eis {
+            display: inline-block;
+            font-size: 0.75em;
+            font-family: monospace;
+            font-weight: 600;
+            background: rgba(0, 0, 0, 0.06);
+            color: var(--text-secondary, #666);
+            padding: 2px 6px;
+            border-radius: 4px;
+            margin-left: 6px;
+        }
+
+        .dark-mode .badge-eis {
+            background: rgba(255, 255, 255, 0.1);
+            color: #bbb;
+        }
+
+        .badge-count {
+            display: inline-block;
+            font-size: 0.8em;
+            font-weight: 700;
+            background: var(--primary-light, #e3f2fd);
+            color: var(--primary-color, #1976d2);
+            padding: 2px 8px;
+            border-radius: 12px;
+        }
+
+        .dark-mode .badge-count {
+            background: rgba(33, 150, 243, 0.2);
+            color: #64b5f6;
         }

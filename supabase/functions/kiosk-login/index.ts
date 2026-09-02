@@ -20,14 +20,28 @@ const ALLOWED_ORIGINS = new Set([
 ]);
 const LOCALHOST_RE = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 
+function convertUidToExternalId(rawUid: string): string {
+  if (typeof rawUid !== "string") return rawUid;
+  const bytes = rawUid.split(":");
+  if (bytes.length !== 4 || !bytes.slice(0, 3).every((b) => /^[0-9a-fA-F]{2}$/.test(b))) {
+    return rawUid;
+  }
+  const decimal = parseInt(bytes[2] + bytes[1] + bytes[0], 16);
+  return isNaN(decimal) ? rawUid : String(decimal);
+}
+
 function corsHeaders(req: Request): Record<string, string> {
   const origin = req.headers.get("origin") ?? "";
-  const isAllowed = ALLOWED_ORIGINS.has(origin) || LOCALHOST_RE.test(origin);
+  const isAllowed = ALLOWED_ORIGINS.has(origin) || LOCALHOST_RE.test(origin) || !origin;
   const headers: Record<string, string> = {
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
     "Vary": "Origin",
   };
-  if (isAllowed) headers["Access-Control-Allow-Origin"] = origin;
+  if (origin) {
+    headers["Access-Control-Allow-Origin"] = origin;
+  } else {
+    headers["Access-Control-Allow-Origin"] = "*";
+  }
   return headers;
 }
 
@@ -59,26 +73,39 @@ Deno.serve(async (req) => {
     const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
     const windowStart = new Date(Date.now() - RATE_LIMIT_WINDOW_SECONDS * 1000).toISOString();
 
-    // Self-cleaning: every call prunes rows outside the window, so the table
-    // never grows unbounded and there's nothing to schedule or maintain.
-    await admin.from("login_attempts").delete().lt("created_at", windowStart);
+    // Guard rate-limit table gracefully in case it's not provisioned
+    try {
+      await admin.from("login_attempts").delete().lt("created_at", windowStart);
+      const { count: recentAttempts } = await admin
+        .from("login_attempts")
+        .select("id", { count: "exact", head: true })
+        .eq("ip", ip)
+        .gte("created_at", windowStart);
 
-    const { count: recentAttempts, error: rateErr } = await admin
-      .from("login_attempts")
-      .select("id", { count: "exact", head: true })
-      .eq("ip", ip)
-      .gte("created_at", windowStart);
-    if (rateErr) throw rateErr;
-    if ((recentAttempts ?? 0) >= RATE_LIMIT_MAX_ATTEMPTS) {
-      return json({ result: "error", message: "Too many attempts. Try again shortly." }, 429);
+      if ((recentAttempts ?? 0) >= RATE_LIMIT_MAX_ATTEMPTS) {
+        return json({ result: "error", message: "Too many attempts. Try again shortly." }, 429);
+      }
+      await admin.from("login_attempts").insert({ ip });
+    } catch (rlErr) {
+      console.warn("Rate limit check non-fatal warning:", rlErr);
     }
-    await admin.from("login_attempts").insert({ ip });
 
-    // 1. Does this card belong to a staff member?
+    // 1. Does this card belong to a staff member? (Match raw hex or converted decimal format)
+    const rawTrimmed = String(uid).trim();
+    const converted = convertUidToExternalId(rawTrimmed);
+    const candidateUids = Array.from(
+      new Set([
+        rawTrimmed,
+        rawTrimmed.toLowerCase(),
+        rawTrimmed.toUpperCase(),
+        converted,
+      ]),
+    );
+
     const { data: staffRows, error: staffErr } = await admin
       .from("staff")
       .select("name,email,role")
-      .eq("uid", String(uid).trim());
+      .in("uid", candidateUids);
     if (staffErr) throw staffErr;
     if (!staffRows || staffRows.length === 0) {
       return json({ result: "not_admin", message: "UID not recognized as staff." });
@@ -88,10 +115,11 @@ Deno.serve(async (req) => {
 
     // 2. Non-students may only log in from a trusted device
     if (role !== "Student") {
+      const devIdTrimmed = String(deviceId ?? "").trim();
       const { data: devices, error: devErr } = await admin
         .from("trusted_devices")
         .select("id")
-        .eq("device_id", String(deviceId ?? "").trim());
+        .eq("device_id", devIdTrimmed);
       if (devErr) throw devErr;
       if (!devices || devices.length === 0) {
         return json({

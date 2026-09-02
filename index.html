@@ -93,7 +93,7 @@
                             <i class="fa-solid fa-address-card"></i>
                             <span class="btn-text"> Register Student ID</span>
                         </button>
-                        <img id="user-avatar" class="user-avatar" src="" alt="User Avatar">
+                        <img id="user-avatar" class="user-avatar" src="" alt="User Avatar" referrerpolicy="no-referrer">
                         <span id="user-name"></span>
                         <button id="logout-btn" class="btn-red btn-icon" title="Sign Out">
                             <i class="fa-solid fa-right-from-bracket"></i>
@@ -228,8 +228,6 @@
                             <option value="date-asc"> Date (Oldest)</option>
                             <option value="name-asc"> Name (A-Z)</option>
                             <option value="name-desc"> Name (Z-A)</option>
-                            <option value="uid-asc"> UID (A-Z)</option>
-                            <option value="uid-desc"> UID (Z-A)</option>
                         </select>
                     </div>
 
@@ -272,10 +270,6 @@
                                 <tr>
                                     <th class="sortable name-column" data-sort="name">
                                         <i class="fa-solid fa-user"></i> Name <i class="sort-icon fa-solid fa-sort"></i>
-                                    </th>
-                                    <th class="sortable uid-column admin-only" data-sort="uid">
-                                        <i class="fa-solid fa-id-card"></i> UID <i
-                                            class="sort-icon fa-solid fa-sort"></i>
                                     </th>
                                     <th class="sortable date-column" data-sort="date">
                                         <i class="fa-regular fa-calendar-days"></i> Date <i
@@ -322,6 +316,8 @@
                         <select id="db-sort-select" class="sort-dropdown">
                             <option value="name-asc"> Name (A-Z)</option>
                             <option value="name-desc"> Name (Z-A)</option>
+                            <option value="id-asc"> ID (Asc)</option>
+                            <option value="id-desc"> ID (Desc)</option>
                             <option value="uid-asc"> UID (A-Z)</option>
                             <option value="uid-desc"> UID (Z-A)</option>
                             <option value="email-asc"> Email (A-Z)</option>
@@ -362,9 +358,12 @@
                                         <i class="fa-solid fa-user"></i> Name <i
                                             class="sort-icon fa-solid fa-sort-up"></i>
                                     </th>
-                                    <th class="sortable uid-column" data-sort="uid">
-                                        <i class="fa-solid fa-id-card"></i> UID <i
+                                    <th class="sortable id-column" data-sort="id">
+                                        <i class="fa-solid fa-id-card"></i> ID <i
                                             class="sort-icon fa-solid fa-sort"></i>
+                                    </th>
+                                    <th class="sortable uid-column" data-sort="uid">
+                                        <i class="fa-solid fa-wifi"></i> UID <i class="sort-icon fa-solid fa-sort"></i>
                                     </th>
                                     <th class="sortable email-column" data-sort="email">
                                         <i class="fa-solid fa-envelope"></i> Email <i

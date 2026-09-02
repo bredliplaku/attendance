@@ -115,27 +115,45 @@ function isTouchDevice() {
     return 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 }
 
-function openDialogMode() {
-    dialogOpenCount++;
-    if (dialogOpenCount === 1) {
+function syncDialogMode() {
+    if (typeof document === 'undefined' || !document.body) return;
+    const openBackdrops = document.querySelectorAll('.dialog-backdrop');
+    dialogOpenCount = openBackdrops.length;
+    if (dialogOpenCount === 0) {
+        document.body.classList.remove('dialog-open');
+        if (document.documentElement) document.documentElement.classList.remove('dialog-open');
+        document.body.style.overflow = '';
+        if (document.documentElement) document.documentElement.style.overflow = '';
+    } else {
         document.body.classList.add('dialog-open');
         // Reset burn-in transform to prevent dialog offset
         document.body.style.transform = '';
     }
 }
 
+function openDialogMode() {
+    if (typeof document === 'undefined' || !document.body) return;
+    document.body.classList.add('dialog-open');
+    document.body.style.transform = '';
+    syncDialogMode();
+    setTimeout(syncDialogMode, 0);
+}
 
 function closeDialogMode() {
-    dialogOpenCount = Math.max(0, dialogOpenCount - 1);
-    if (dialogOpenCount === 0) {
-        document.body.classList.remove('dialog-open');
-    }
+    syncDialogMode();
+    setTimeout(syncDialogMode, 0);
 }
 
 // Emergency reset function - call this if scroll gets stuck
 function resetDialogMode() {
-    dialogOpenCount = 0;
-    document.body.classList.remove('dialog-open');
+    syncDialogMode();
+}
+
+if (typeof window !== 'undefined') {
+    window.syncDialogMode = syncDialogMode;
+    window.openDialogMode = openDialogMode;
+    window.closeDialogMode = closeDialogMode;
+    window.resetDialogMode = resetDialogMode;
 }
 
 // Prevent auto-scroll on focus for non-touch devices
@@ -300,12 +318,17 @@ function showStaffEditorDialog(staffData = null) {
 
             <div class="form-group">
                 <label class="dialog-label-fixed"><i class="fa-solid fa-wifi"></i> UID*</label>
-                <div class="admin-tool-bar" style="padding:0; border:none; background:transparent;"> 
-                    <div class="admin-input-wrapper" style="margin:0;">
-                        <input type="text" id="staff-uid" class="form-control" placeholder="AB:CD:12:34" value="${escapeHtml(uidVal)}">
-                        ${nfcSupported ? '<button class="btn-blue btn-icon btn-sm scan-staff-uid-btn" title="Scan UID"><i class="fa-solid fa-wifi"></i></button>' : ''}
+                <div class="admin-tool-bar" style="padding:0; border:none; background:transparent; flex-grow:1;"> 
+                    <div class="admin-input-wrapper" style="margin:0; width:100%;">
+                        <input type="text" id="staff-uid" class="form-control" placeholder="04:a2:3f:8a" value="${escapeHtml(uidVal)}">
+                        ${nfcSupported ? '<button class="btn-blue btn-icon btn-sm scan-staff-uid-btn" title="Scan UID" style="border-radius:6px;"><i class="fa-solid fa-wifi"></i></button>' : ''}
                     </div>
                 </div>
+            </div>
+
+            <div class="form-group">
+                <label class="dialog-label-fixed"><i class="fa-solid fa-id-card"></i> ID</label>
+                <input type="text" id="staff-converted-id" class="form-control" placeholder="Auto-calculated from UID" value="${escapeHtml(convertUidToExternalId(uidVal))}" disabled style="opacity:0.75; cursor:not-allowed; background:rgba(0,0,0,0.04);">
             </div>
             
             <div id="staff-nfc-status" style="margin-top:10px;"></div>
@@ -319,8 +342,17 @@ function showStaffEditorDialog(staffData = null) {
     document.body.appendChild(dialogBackdrop);
 
     const uidInput = dialog.querySelector('#staff-uid');
+    const convertedInput = dialog.querySelector('#staff-converted-id');
     const statusContainer = dialog.querySelector('#staff-nfc-status');
     const scanBtn = dialog.querySelector('.scan-staff-uid-btn');
+
+    // Real-time calculation from UID to ID
+    if (uidInput && convertedInput) {
+        uidInput.addEventListener('input', () => {
+            const raw = uidInput.value.trim();
+            convertedInput.value = convertUidToExternalId(raw) || '';
+        });
+    }
 
     if (scanBtn) {
         scanBtn.addEventListener('click', () => {
@@ -347,7 +379,9 @@ function showStaffEditorDialog(staffData = null) {
     dialog.querySelector('#save-staff-btn').onclick = async (e) => {
         const name = document.getElementById('staff-name').value.trim();
         const email = document.getElementById('staff-email').value.trim();
-        const uid = document.getElementById('staff-uid').value.trim();
+        const rawUid = document.getElementById('staff-uid').value.trim();
+        const convId = document.getElementById('staff-converted-id')?.value.trim();
+        const uid = convId || convertUidToExternalId(rawUid) || rawUid;
         const role = document.getElementById('staff-role').value;
         const btn = e.target;
 
@@ -1393,44 +1427,100 @@ function addPlusOneHourLog(group) {
 window.buildUIDToPrimaryUidMap = function () {
     uidToPrimaryUidMap = {};
 
-    // For each student in database (keyed by Index)
+    // For each student in database (keyed by Index / dbKey)
     Object.keys(databaseMap).forEach(index => {
         const student = databaseMap[index];
-        if (student && student.uids) {
-            // Map each UID to the student's Index
-            student.uids.forEach(uid => {
-                uidToPrimaryUidMap[uid] = index;
+        if (!student) return;
+
+        // 1. Map Student IDs (uids array in Supabase)
+        if (student.uids && Array.isArray(student.uids)) {
+            student.uids.forEach(rawId => {
+                const s = String(rawId || '').trim();
+                if (!s) return;
+                uidToPrimaryUidMap[s] = index;
+                uidToPrimaryUidMap[s.toLowerCase()] = index;
+                uidToPrimaryUidMap[s.toUpperCase()] = index;
+                const convertedUid = convertExternalIdToUid(s);
+                if (convertedUid && convertedUid !== s) {
+                    uidToPrimaryUidMap[convertedUid] = index;
+                }
+            });
+        }
+
+        // 2. Map Hardware UIDs (hardware_uids array in Supabase)
+        if (student.hardware_uids && Array.isArray(student.hardware_uids)) {
+            student.hardware_uids.forEach(rawUid => {
+                const s = String(rawUid || '').trim();
+                if (!s) return;
+                uidToPrimaryUidMap[s] = index;
+                uidToPrimaryUidMap[s.toLowerCase()] = index;
+                uidToPrimaryUidMap[s.toUpperCase()] = index;
+                const convertedId = convertUidToExternalId(s);
+                if (convertedId && convertedId !== s) {
+                    uidToPrimaryUidMap[convertedId] = index;
+                }
             });
         }
     });
+};
 
+/**
+ * Converts a 4-byte NFC Card Hardware UID ("9a:0b:b6:88") to the decimal Student ID ("11930522")
+ * by reversing the first 3 bytes and reading them as a big-endian hex number.
+ */
+function convertUidToExternalId(rawUid) {
+    if (typeof rawUid !== 'string' && typeof rawUid !== 'number') return '';
+    const s = String(rawUid).trim();
+    const bytes = s.split(':');
+    if (bytes.length !== 4 || !bytes.slice(0, 3).every(b => /^[0-9a-fA-F]{2}$/.test(b))) {
+        return s;
+    }
+    const decimal = parseInt(bytes[2] + bytes[1] + bytes[0], 16);
+    return isNaN(decimal) ? s : String(decimal);
 }
 
 /**
- * Converts a 4-byte NFC UID ("9a:0b:b6:88") to the IT department's decimal
- * ID format ("11930522") by reversing the first 3 bytes and reading them as
- * a big-endian hex number. Anything that isn't exactly 4 colon-separated hex
- * byte pairs (already-converted IDs, manual entries, other UID lengths) is
- * returned unchanged.
+ * Converts a decimal Student ID ("11930522") to a 4-byte NFC Card Hardware UID ("9a:0b:b6:88").
  */
-function convertUidToExternalId(rawUid) {
-    if (typeof rawUid !== 'string') return rawUid;
-    const bytes = rawUid.split(':');
-    if (bytes.length !== 4 || !bytes.slice(0, 3).every(b => /^[0-9a-fA-F]{2}$/.test(b))) {
-        return rawUid;
+function convertExternalIdToUid(id) {
+    if (!id && id !== 0) return '';
+    const cleanId = String(id).trim();
+    if (/^[0-9a-fA-F]{2}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}$/.test(cleanId)) {
+        return cleanId.toLowerCase();
     }
-    const decimal = parseInt(bytes[2] + bytes[1] + bytes[0], 16);
-    return isNaN(decimal) ? rawUid : String(decimal);
+    const num = parseInt(cleanId, 10);
+    if (isNaN(num) || num <= 0) return '';
+    const hex = num.toString(16).padStart(6, '0');
+    if (hex.length > 6) return '';
+    const b2 = hex.slice(0, 2);
+    const b1 = hex.slice(2, 4);
+    const b0 = hex.slice(4, 6);
+    const b3 = (parseInt(b0, 16) ^ parseInt(b1, 16) ^ parseInt(b2, 16)).toString(16).padStart(2, '0');
+    return `${b0}:${b1}:${b2}:${b3}`.toLowerCase();
 }
 
-// Dual lookup: matches old rows (raw-UID uids) and new rows (converted-ID uids)
+// Dual lookup: matches raw Card UIDs, Student IDs, or cross-converted values
 function lookupPrimaryUid(rawUid) {
-    return uidToPrimaryUidMap[rawUid] || uidToPrimaryUidMap[convertUidToExternalId(rawUid)];
+    if (!rawUid) return null;
+    const s = String(rawUid).trim();
+    return uidToPrimaryUidMap[s] ||
+        uidToPrimaryUidMap[s.toLowerCase()] ||
+        uidToPrimaryUidMap[s.toUpperCase()] ||
+        uidToPrimaryUidMap[convertUidToExternalId(s)] ||
+        uidToPrimaryUidMap[convertExternalIdToUid(s)] || null;
 }
 
 // Cross-format equality for duplicate detection
 function uidsEquivalent(a, b) {
-    return a === b || convertUidToExternalId(a) === b || a === convertUidToExternalId(b);
+    if (!a || !b) return false;
+    const normA = String(a).trim().toLowerCase();
+    const normB = String(b).trim().toLowerCase();
+    return normA === normB ||
+        convertUidToExternalId(normA) === normB ||
+        normA === convertUidToExternalId(normB) ||
+        convertExternalIdToUid(normA) === normB ||
+        normA === convertExternalIdToUid(normB) ||
+        convertUidToExternalId(normA) === convertUidToExternalId(normB);
 }
 
 /**
@@ -1589,22 +1679,30 @@ function setupEventListeners() {
             if (isNaN(dateObj.getTime())) return;
             const scannedUid = log.uid;
             const dbKey = lookupPrimaryUid(scannedUid);
-            const groupIdentifier = dbKey || scannedUid;
 
             const studentData = dbKey ? databaseMap[dbKey] : null;
             const name = studentData ? studentData.name : 'Unknown';
-            const uidsForDisplay = studentData ? studentData.uids : [scannedUid];
+            const uidsForDisplay = studentData ? (studentData.hardware_uids || studentData.uids || [scannedUid]) : [scannedUid];
 
             const day = String(dateObj.getDate()).padStart(2, '0');
             const month = String(dateObj.getMonth() + 1).padStart(2, '0');
             const year = dateObj.getFullYear();
             const date = `${day}-${month}-${year}`;
 
-            // This is the corrected line
             const groupKey = `${date}_${scannedUid}`;
 
             if (!grouped[groupKey]) {
-                grouped[groupKey] = { key: groupKey, date, dateObj, uid: groupIdentifier, name: name, uidsForDisplay: uidsForDisplay, originalLogs: [] };
+                grouped[groupKey] = {
+                    key: groupKey,
+                    date,
+                    dateObj,
+                    uid: scannedUid,
+                    dbKey: dbKey,
+                    name: name,
+                    studentData: studentData,
+                    uidsForDisplay: uidsForDisplay,
+                    originalLogs: []
+                };
             }
             grouped[groupKey].originalLogs.push(log);
         });
@@ -1698,6 +1796,237 @@ function setupEventListeners() {
         });
     });
     setupAbsenceHistory();
+
+    // --- Global Click Interceptor for Backdrop & Cancel/Close Buttons ---
+    document.addEventListener('click', (e) => {
+        // 1. Backdrop click
+        if (e.target.classList && e.target.classList.contains('dialog-backdrop')) {
+            // Ignore if clicking on confirmation backdrop itself
+            if (e.target.classList.contains('confirmation-backdrop')) return;
+            e.preventDefault();
+            e.stopPropagation();
+            e.stopImmediatePropagation();
+            window.confirmCloseDialog(e.target);
+            return;
+        }
+
+        // 2. Intercept Cancel / Close buttons inside any dialog (except confirmation modal)
+        const confirmModal = e.target.closest('.confirmation-dialog, [role="alertdialog"]');
+        if (confirmModal) return;
+
+        const cancelBtn = e.target.closest(
+            'button[id*="cancel"], button[id*="close"], .dialog-actions button.btn-red, ' +
+            '#cancel-edit-c, #cancel-staff-btn, #cancel-trust-btn, #close-settings-btn, #cancel-reg-btn, ' +
+            '#cancel-add-log-btn, #cancel-manual-btn, #cancel-custom-btn, #cancel-db-import-btn, ' +
+            '#cancel-duplicate-btn, #cancel-request-btn, #cancel-approve-btn, #cancel-reject-btn, ' +
+            '#cancel-details-btn, #close-details-btn, #cancel-add-btn'
+        );
+
+        if (cancelBtn) {
+            const backdrop = cancelBtn.closest('.dialog-backdrop');
+            if (backdrop && !backdrop.classList.contains('confirmation-backdrop')) {
+                const dialog = backdrop.querySelector('.dialog') || backdrop;
+                if (window.isDialogDirty(dialog)) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    e.stopImmediatePropagation();
+                    window.confirmCloseDialog(backdrop);
+                }
+            }
+        }
+    }, true);
+
+    // --- Global Keyboard Shortcuts (Escape & Ctrl+S) ---
+    document.addEventListener('keydown', (e) => {
+        // 1. Escape Key: Safe Close with Dirty Check
+        if (e.key === 'Escape' || e.key === 'Esc') {
+            const openBackdrops = document.querySelectorAll('.dialog-backdrop');
+            if (openBackdrops.length > 0) {
+                const topBackdrop = openBackdrops[openBackdrops.length - 1];
+                if (topBackdrop.classList.contains('confirmation-backdrop')) {
+                    topBackdrop.remove();
+                    if (document.querySelectorAll('.dialog-backdrop').length === 0) closeDialogMode();
+                    return;
+                }
+                e.preventDefault();
+                e.stopPropagation();
+                window.confirmCloseDialog(topBackdrop);
+                return;
+            }
+        }
+
+        // 2. Ctrl+S Key: Modal Save or Main Page Sync
+        if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S' || e.code === 'KeyS')) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            const openBackdrops = document.querySelectorAll('.dialog-backdrop');
+            if (openBackdrops.length > 0) {
+                const topBackdrop = openBackdrops[openBackdrops.length - 1];
+                const topDialog = topBackdrop.querySelector('.dialog') || topBackdrop;
+
+                const saveBtn = topDialog.querySelector(
+                    '.dialog-actions #save-edit-c, .dialog-actions #save-staff-btn, .dialog-actions #save-edit-log-btn, ' +
+                    '.dialog-actions #confirm-db-entry-btn, .dialog-actions #confirm-add-btn, .dialog-actions #confirm-add-log-btn, ' +
+                    '.dialog-actions #save-manual-log-btn, .dialog-actions #submit-register-btn, .dialog-actions #submit-request-btn, ' +
+                    '.dialog-actions #dialog-confirm-btn, .dialog-actions #confirm-trust-btn, .dialog-actions #confirm-approve-btn, ' +
+                    '.dialog-actions #apply-btn, .dialog-actions #replace-btn, .dialog-actions #merge-logs-btn, .dialog-actions #merge-db-btn, ' +
+                    '.dialog-actions #save-settings-btn, .dialog-actions #save-custom-btn, .dialog-actions #confirm-reg-btn, ' +
+                    '.dialog-actions button.btn-green, .dialog-actions .btn-green, .dialog-actions button[type="submit"], ' +
+                    '#save-edit-c, #save-staff-btn, #save-edit-log-btn, #confirm-db-entry-btn, #confirm-add-btn, #confirm-add-log-btn, ' +
+                    '#save-manual-log-btn, #submit-register-btn, #submit-request-btn, #dialog-confirm-btn'
+                );
+
+                if (saveBtn && !saveBtn.disabled && saveBtn.offsetParent !== null) {
+                    saveBtn.click();
+                }
+                return;
+            }
+
+            // Main website refresh
+            const activeTab = document.querySelector('.tab.active')?.getAttribute('data-tab');
+            const targetRefreshBtnId = (activeTab === 'database-tab') ? 'database-refresh-btn' : 'scanner-refresh-btn';
+
+            if (typeof handleManualRefresh === 'function') {
+                handleManualRefresh(targetRefreshBtnId);
+            } else if (typeof syncData === 'function') {
+                syncData();
+            } else if (typeof updateUI === 'function') {
+                updateUI();
+            }
+        }
+    }, true);
+
+    // Auto-snapshot input values and sync dialog scroll mode on dialog creation/removal
+    const dialogObserver = new MutationObserver((mutations) => {
+        syncDialogMode();
+        mutations.forEach(mutation => {
+            mutation.addedNodes.forEach(node => {
+                if (node.nodeType === 1) {
+                    const backdrops = node.classList?.contains('dialog-backdrop') ? [node] : node.querySelectorAll?.('.dialog-backdrop');
+                    if (backdrops && backdrops.length > 0) {
+                        backdrops.forEach(bd => window.snapshotDialogInputs(bd));
+                        setTimeout(() => {
+                            backdrops.forEach(bd => window.snapshotDialogInputs(bd));
+                            syncDialogMode();
+                        }, 60);
+                    }
+                }
+            });
+            if (mutation.removedNodes && mutation.removedNodes.length > 0) {
+                syncDialogMode();
+                setTimeout(syncDialogMode, 50);
+            }
+        });
+    });
+    dialogObserver.observe(document.body, { childList: true, subtree: true });
+}
+
+// --- Universal Dialog Dirty Checking & Unsaved Changes Protection ---
+/**
+ * Checks if a dialog has any unsaved changes or newly added input.
+ */
+function isDialogDirty(dialog) {
+    if (!dialog) return false;
+
+    // 1. Custom dirty check if dialog registered one
+    if (typeof dialog._checkDirty === 'function') {
+        try {
+            if (dialog._checkDirty()) return true;
+        } catch (err) {
+            console.warn('Error in custom dialog dirty check:', err);
+        }
+    }
+
+    // 2. Check all editable inputs, selects, textareas
+    const inputs = dialog.querySelectorAll('input, select, textarea');
+    for (const input of inputs) {
+        if (input.id && (input.id.includes('search') || input.id.includes('filter'))) continue;
+        if (input.disabled || input.readOnly) continue;
+
+        if (input.type === 'checkbox' || input.type === 'radio') {
+            const initial = (input._initialChecked !== undefined) ? input._initialChecked : input.defaultChecked;
+            if (input.checked !== initial) return true;
+        } else if (input.type === 'file') {
+            if (input.files && input.files.length > 0) return true;
+        } else {
+            const initial = (input._initialValue !== undefined) ? input._initialValue : (input.defaultValue || '');
+            const current = input.value || '';
+            if (!initial.trim() && !current.trim()) continue;
+            if (current !== initial) return true;
+        }
+    }
+
+    // 3. Check for toggle buttons or reason cards changed from baseline
+    const interactiveToggles = dialog.querySelectorAll('.toggle-button, .reason-card');
+    for (const toggle of interactiveToggles) {
+        if (toggle._initialActive !== undefined) {
+            const isCurrentlyActive = toggle.classList.contains('active') || toggle.classList.contains('selected');
+            if (isCurrentlyActive !== toggle._initialActive) return true;
+        }
+    }
+
+    return false;
+}
+if (typeof window !== 'undefined') window.isDialogDirty = isDialogDirty;
+
+/**
+ * Snapshots the initial values of all inputs and toggles in a dialog.
+ */
+function snapshotDialogInputs(dialog) {
+    if (!dialog) return;
+    dialog.querySelectorAll('input, select, textarea').forEach(input => {
+        if (input.type === 'checkbox' || input.type === 'radio') {
+            input._initialChecked = input.checked;
+        } else {
+            input._initialValue = input.value;
+        }
+    });
+    dialog.querySelectorAll('.toggle-button, .reason-card').forEach(toggle => {
+        toggle._initialActive = toggle.classList.contains('active') || toggle.classList.contains('selected');
+    });
+}
+if (typeof window !== 'undefined') window.snapshotDialogInputs = snapshotDialogInputs;
+
+/**
+ * Requests closing a dialog with unsaved changes protection.
+ */
+function confirmCloseDialog(backdropOrDialog, onDismiss) {
+    if (!backdropOrDialog) return;
+    const backdrop = backdropOrDialog.classList?.contains('dialog-backdrop')
+        ? backdropOrDialog
+        : backdropOrDialog.closest?.('.dialog-backdrop');
+    const dialog = backdrop ? (backdrop.querySelector('.dialog') || backdrop) : backdropOrDialog;
+
+    const performClose = () => {
+        if (typeof onDismiss === 'function') {
+            onDismiss();
+        }
+        if (backdrop && document.body.contains(backdrop)) {
+            backdrop.remove();
+            closeDialogMode();
+        }
+    };
+
+    if (isDialogDirty(dialog)) {
+        showConfirmationDialog({
+            title: '<i class="fa-solid fa-triangle-exclamation" style="color:var(--warning-color);"></i> Discard Changes?',
+            message: 'You have unsaved changes. Are you sure you want to discard them?',
+            confirmText: 'Discard',
+            cancelText: 'Keep Editing',
+            isDestructive: true,
+            onConfirm: performClose
+        });
+        return false;
+    } else {
+        performClose();
+        return true;
+    }
+}
+if (typeof window !== 'undefined') window.confirmCloseDialog = confirmCloseDialog;
+
+function getAvatarFallbackUrl(name) {
+    return `https://ui-avatars.com/api/?name=${encodeURIComponent(name || 'User')}&background=1976d2&color=fff`;
 }
 
 // --- 3. Non-Global Admin Profile & Settings ---
@@ -1715,15 +2044,17 @@ function showGlobalSettingsDialog() {
     let avatarClickCount = 0;
     let lastAvatarClickTime = 0;
 
+    const avatarUrl = currentUser.picture || getAvatarFallbackUrl(currentUser.name);
+
     // --- HTML STRUCTURE ---
     dialog.innerHTML = `
     <div class="settings-modal-header">
         <div style="display:flex; align-items:center; gap:15px;">
             <div style="position:relative; width:48px; height:48px; cursor: default;" id="admin-profile-pic-container">
-                <img id="profile-avatar-img" src="${currentUser.picture}" style="width:100%; height:100%; border-radius:50%; border:2px solid var(--card-background); box-shadow:0 2px 8px rgba(0,0,0,0.1); object-fit:cover;">
+                <img id="profile-avatar-img" src="${avatarUrl}" referrerpolicy="no-referrer" onerror="this.onerror=null; this.src='${getAvatarFallbackUrl(currentUser.name)}';" style="width:100%; height:100%; border-radius:50%; border:2px solid var(--card-background); box-shadow:0 2px 8px rgba(0,0,0,0.1); object-fit:cover;">
             </div>
             <div>
-                <h3 style="margin:0; font-size:1.3em;">Global Settings</h3>
+                <h3 style="margin:0; font-size:1.3em;">Settings</h3>
                 <div style="font-size:0.85em; opacity:0.7;">Administrator</div>
             </div>
         </div>
@@ -1748,7 +2079,7 @@ function showGlobalSettingsDialog() {
         </div>
         
         <div id="sect-courses" class="settings-section" style="display:flex; flex-direction:column; height:100%;">
-            <div class="settings-controls-bar" style="padding:15px 20px; border-bottom:1px solid rgba(0,0,0,0.05);">
+            <div class="settings-controls-bar" style="padding:15px 20px; border-bottom:1px solid rgba(0,0,0,0.05); display:flex; gap:10px; align-items:center;">
                 <div class="input-with-icon" style="flex-grow:1;">
                     <i class="fa-solid fa-magnifying-glass"></i>
                     <input type="text" id="course-search-input" class="settings-search-input" placeholder="Search courses...">
@@ -1757,33 +2088,20 @@ function showGlobalSettingsDialog() {
                     <i class="fa-solid fa-plus"></i> New Course
                 </button>
             </div>
-            <div style="flex-grow:1; overflow-y:auto; padding:20px;">
-                <div id="settings-course-grid" class="modern-course-grid"></div>
-            </div>
+            <div style="flex-grow:1; overflow-y:auto; padding:20px;" id="settings-courses-container"></div>
         </div>
 
         <div id="sect-staff" class="settings-section" style="display:none; flex-direction:column; height:100%;">
-            <div class="database-controls" style="padding:15px 20px; margin:0; border-bottom:1px solid rgba(0,0,0,0.05);">
-                <div style="font-size:0.9em; opacity:0.8;">Manage NFC Login Access</div>
+            <div class="settings-controls-bar" style="padding:15px 20px; border-bottom:1px solid rgba(0,0,0,0.05); display:flex; gap:10px; align-items:center;">
+                <div class="input-with-icon" style="flex-grow:1;">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    <input type="text" id="staff-search-input" class="settings-search-input" placeholder="Search staff...">
+                </div>
                 <button id="add-staff-btn" class="btn-green btn-sm">
                     <i class="fa-solid fa-user-plus"></i> Add Staff
                 </button>
             </div>
-            <div style="flex-grow:1; overflow-y:auto; padding:20px;">
-                <div class="table-container">
-                    <table class="database-table">
-                        <thead>
-                            <tr>
-                                <th>Name</th>
-                                <th>UID</th>
-                                <th>Email</th>
-                                <th class="actions-header">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="staff-tbody"></tbody>
-                    </table>
-                </div>
-            </div>
+            <div style="flex-grow:1; overflow-y:auto; padding:20px;" id="settings-staff-container"></div>
         </div>
 
         <div id="sect-devices" class="settings-section" style="display:none; flex-direction:column; height:100%;">
@@ -1838,25 +2156,65 @@ function showGlobalSettingsDialog() {
 
     // --- LOGIC ---
 
-    // 1. Tab Switching
+    // 1. Tab Switching with Dirty Form Check
     dialog.querySelectorAll('.settings-tab-btn').forEach(btn => {
         btn.addEventListener('click', () => {
-            dialog.querySelectorAll('.settings-tab-btn').forEach(b => b.classList.remove('active'));
-            dialog.querySelectorAll('.settings-section').forEach(s => s.style.display = 'none');
+            if (btn.classList.contains('active')) return;
 
-            btn.classList.add('active');
+            // Check if active section has dirty inputs
+            const activeSection = dialog.querySelector('.settings-section[style*="display: flex"], .settings-section[style*="display:flex"]');
+            let isSectionDirty = false;
+            if (activeSection) {
+                const inputs = activeSection.querySelectorAll('input, select, textarea');
+                for (const input of inputs) {
+                    if (input.id && (input.id.includes('search') || input.id.includes('filter'))) continue;
+                    if (input.disabled || input.readOnly) continue;
+                    if (input.type === 'checkbox' || input.type === 'radio') {
+                        if (input._initialChecked !== undefined && input.checked !== input._initialChecked) {
+                            isSectionDirty = true; break;
+                        }
+                    } else if (input._initialValue !== undefined && input.value !== input._initialValue) {
+                        isSectionDirty = true; break;
+                    }
+                }
+            }
 
-            // Flex display needed for the internal layout (sticky headers)
-            const target = document.getElementById(btn.dataset.target);
-            if (target) target.style.display = 'flex';
+            const switchTab = () => {
+                dialog.querySelectorAll('.settings-tab-btn').forEach(b => b.classList.remove('active'));
+                dialog.querySelectorAll('.settings-section').forEach(s => s.style.display = 'none');
+                btn.classList.add('active');
+                const target = document.getElementById(btn.dataset.target);
+                if (target) target.style.display = 'flex';
+            };
+
+            if (isSectionDirty) {
+                showConfirmationDialog({
+                    title: '<i class="fa-solid fa-triangle-exclamation" style="color:var(--warning-color);"></i> Discard Changes?',
+                    message: 'You have unsaved changes in this tab. Are you sure you want to discard them?',
+                    confirmText: 'Discard',
+                    cancelText: 'Keep Editing',
+                    isDestructive: true,
+                    onConfirm: switchTab
+                });
+            } else {
+                switchTab();
+            }
         });
     });
 
-    // 2. Search Listener
+    // 2. Search Listeners
     const searchInput = document.getElementById('course-search-input');
     if (searchInput) {
         searchInput.addEventListener('input', (e) => {
             renderCoursesInSettings(courseInfoMap, e.target.value);
+        });
+    }
+
+    let loadedStaffList = [];
+    const staffSearchInput = document.getElementById('staff-search-input');
+    if (staffSearchInput) {
+        staffSearchInput.addEventListener('input', (e) => {
+            renderStaffInSettings(loadedStaffList, e.target.value);
         });
     }
 
@@ -1872,59 +2230,13 @@ function showGlobalSettingsDialog() {
             if (loader) loader.style.display = 'none';
 
             courseInfoMap = courseInfo;
+            loadedStaffList = globalData.staff || [];
 
             // Render Courses
             renderCoursesInSettings(courseInfo);
 
-            // --- RENDER STAFF (Safe Mode) ---
-            const staffBody = document.getElementById('staff-tbody');
-            if (staffBody && globalData.staff) {
-                staffBody.innerHTML = globalData.staff.map(s => {
-                    const isGlobal = (s.role === 'Global');
-                    const roleBadge = isGlobal
-                        ? `<span style="background:var(--purple-color); color:white; padding:2px 6px; border-radius:4px; font-size:0.8em; margin-left:5px;">ADMIN</span>`
-                        : ``;
-
-                    // We use DATA attributes instead of onclick to handle quotes safely
-                    return `
-                <tr>
-                    <td style="font-weight:500;">
-                        ${escapeHtml(s.name)}
-                        ${roleBadge}
-                    </td>
-                    <td><span class="uid-badge">${escapeHtml(s.uid)}</span></td>
-                    <td>${escapeHtml(s.email)}</td>
-                    <td class="actions-cell">
-                        <div class="actions-cell-content">
-                            <button class="btn-blue btn-icon edit-staff-btn" 
-                                data-row-index="${s.rowIndex}" 
-                                data-name="${escapeHtml(s.name)}" 
-                                data-uid="${escapeHtml(s.uid)}" 
-                                data-email="${escapeHtml(s.email)}" 
-                                data-role="${escapeHtml(s.role || 'Lecturer')}"
-                                title="Edit">
-                                <i class="fa-solid fa-pencil"></i>
-                            </button>
-                            <button class="btn-red btn-icon delete-staff-btn" 
-                                data-row-index="${s.rowIndex}" 
-                                data-name="${escapeHtml(s.name)}"
-                                title="Delete">
-                                <i class="fa-solid fa-trash"></i>
-                            </button>
-                        </div>
-                    </td>
-                </tr>
-            `;
-                }).join('');
-
-                // Attach Staff Listeners
-                staffBody.querySelectorAll('.edit-staff-btn').forEach(btn => {
-                    btn.onclick = () => window.editStaffKey(btn.dataset.rowIndex, btn.dataset.name, btn.dataset.uid, btn.dataset.email, btn.dataset.role);
-                });
-                staffBody.querySelectorAll('.delete-staff-btn').forEach(btn => {
-                    btn.onclick = () => window.deleteStaffKey(btn.dataset.rowIndex, btn.dataset.name);
-                });
-            }
+            // Render Staff (Grouped by position & sorted alphabetically ignoring titles)
+            renderStaffInSettings(loadedStaffList);
 
             // --- RENDER DEVICES (Safe Mode) ---
             const deviceBody = document.getElementById('devices-tbody');
@@ -2146,28 +2458,23 @@ window.deleteStaffKey = (rowIndex, name) => {
 };
 
 
-// --- 2. Course Editor (Merged UI + Logic) ---
-// --- 2. Course Editor (Renaming Support + Validation) ---
+// // --- 2. Course Editor (Renaming Support + Clean Code + Validation) ---
 function showCourseEditorDialog(courseName, courseData = null) {
     const isNew = !courseName;
     const title = isNew ? 'New Course' : 'Edit Course';
     const data = courseData || {};
     const val = (v) => v !== undefined && v !== null ? v : '';
 
-    // 1. LOGIC: Display name with spaces (e.g. "CE 202")
-    const displayCourseName = (courseName || '').replace(/_/g, ' ');
+    // 1. LOGIC: Display clean course code (strip internal archive/EIS ID suffix)
+    const cleanCourseName = isNew ? '' : getCleanCourseCode(courseName, data.eisId);
+    const displayCourseName = cleanCourseName;
 
     const formatDate = (d) => {
         if (!d) return '';
-        // If it's already YYYY-MM-DD, trust it
         if (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
-
         try {
             const date = new Date(d);
             if (isNaN(date.getTime())) return '';
-
-            // Use LOCAL getters to preserve the exact date selected by the user
-            // This ignores UTC conversion entirely.
             const year = date.getFullYear();
             const month = String(date.getMonth() + 1).padStart(2, '0');
             const day = String(date.getDate()).padStart(2, '0');
@@ -2179,13 +2486,11 @@ function showCourseEditorDialog(courseName, courseData = null) {
     const disabledAttr = canEditSensitive ? '' : 'disabled';
     const readOnlyStyle = canEditSensitive ? '' : 'style="background-color:#f5f5f5; color:#666; cursor:not-allowed;"';
 
-    // Parse existing sections
     let currentSections = [];
     if (data.availableSections) {
         currentSections = data.availableSections.split(',').map(s => s.trim()).filter(Boolean);
     }
 
-    // Parse existing admins into a Set
     let currentAdmins = new Set();
     if (data.adminEmails) {
         data.adminEmails.split(',').forEach(e => currentAdmins.add(e.trim().toLowerCase()));
@@ -2206,7 +2511,7 @@ function showCourseEditorDialog(courseName, courseData = null) {
             <label class="dialog-label-fixed"><i class="fa-solid fa-user-shield"></i> Admins</label>
             <div class="input-with-icon" style="flex-grow:1;">
                 <i class="fa-solid fa-magnifying-glass"></i>
-                <input type="text" id="admin-search-input" class="form-control" placeholder="Search...">
+                <input type="text" id="admin-search-input" class="form-control" placeholder="Search staff...">
             </div>
         </div>
         
@@ -2214,7 +2519,7 @@ function showCourseEditorDialog(courseName, courseData = null) {
             <div id="admin-staff-loader" style="position:absolute; inset:0; display:flex; justify-content:center; align-items:center; z-index:10; background:var(--card-background); border-radius:8px;">
                 <div class="loading-spinner" style="width:30px; height:30px; border-width:3px; margin:0;"></div>
             </div>
-            <div id="admin-selection-list" class="student-list-container" style="margin-left:115px; height:220px; min-height:180px; margin-bottom:5px;"></div>
+            <div id="admin-selection-list" class="student-list-container" style="margin-left:115px; height:200px; min-height:160px; margin-bottom:5px;"></div>
         </div>
         <div id="admin-count-hint" style="text-align:right; font-size:0.85em; color:var(--primary-color); font-weight:600;">${currentAdmins.size} selected</div>
         <hr style="border:0; border-top:1px solid #eee; margin:15px 0;">`;
@@ -2222,7 +2527,6 @@ function showCourseEditorDialog(courseName, courseData = null) {
 
     let eisWarning = !isGlobalAdmin ? `<small style="color:var(--warning-color); display:block; margin-top:4px;"><i class="fa-solid fa-lock"></i> Admin only.</small>` : '';
 
-    // Generate Buttons A-D
     let groupButtonsHtml = '';
     for (let i = 0; i < 4; i++) {
         const char = String.fromCharCode(65 + i);
@@ -2234,7 +2538,7 @@ function showCourseEditorDialog(courseName, courseData = null) {
     <div class="dialog-content">
         
         <div class="form-group">
-            <label class="dialog-label-fixed"><i class="fa-solid fa-heading"></i> Name</label>
+            <label class="dialog-label-fixed"><i class="fa-solid fa-heading"></i> Course Code</label>
             <div class="input-with-icon" style="flex-grow:1;">
                 <i class="fa-solid fa-font"></i>
                 <input id="edit-c-name" class="form-control" value="${escapeHtml(displayCourseName)}" ${disabledAttr} placeholder="e.g. CE 101">
@@ -2246,17 +2550,9 @@ function showCourseEditorDialog(courseName, courseData = null) {
             <div style="flex-grow:1;">
                 <div class="input-with-icon">
                     <i class="fa-solid fa-id-badge"></i>
-                    <input id="edit-c-eis" class="form-control" value="${escapeHtml(val(data.eisId))}" placeholder="12345" ${disabledAttr} ${readOnlyStyle}>
+                    <input id="edit-c-eis" class="form-control" value="${escapeHtml(val(data.eisId))}" placeholder="e.g. 12345" ${disabledAttr} ${readOnlyStyle}>
                 </div>
                 ${eisWarning}
-            </div>
-        </div>
-
-        <div class="form-group">
-            <label class="dialog-label-fixed"><i class="fa-regular fa-clock"></i> Hours</label>
-            <div class="input-with-icon" style="flex-grow:1;">
-                <i class="fa-solid fa-hourglass-half"></i>
-                <input type="number" id="edit-c-hours" class="form-control" value="${escapeHtml(val(data.defaultHours))}">
             </div>
         </div>
         
@@ -2315,7 +2611,7 @@ function showCourseEditorDialog(courseName, courseData = null) {
             <label class="dialog-label-fixed"><i class="fa-solid fa-box-archive"></i> Archive</label>
             <label style="display:flex; align-items:center; gap:8px; cursor:pointer; flex-grow:1;">
                 <input type="checkbox" id="edit-c-archived" ${data.archived ? 'checked' : ''} style="width:16px;height:16px;cursor:pointer;accent-color:var(--warning-color);">
-                <span style="font-size:0.9em; opacity:0.7;">Hide from active courses</span>
+                <span style="font-size:0.9em; opacity:0.7;">Archive this course (hide from active list)</span>
             </label>
         </div>` : ''}
 
@@ -2338,7 +2634,7 @@ function showCourseEditorDialog(courseName, courseData = null) {
     let newSectionCat = 'Theory';
     let newSectionGrp = 'A';
 
-    const updateAvailableOptions = () => {
+    const updateAvailableOptions = (forceSelectFirst = false) => {
         Array.from(grpContainer.children).forEach(btn => {
             const grp = btn.dataset.val;
             const fullSec = `${newSectionCat} ${grp}`;
@@ -2347,13 +2643,17 @@ function showCourseEditorDialog(courseName, courseData = null) {
         });
 
         const currentGrpBtn = grpContainer.querySelector(`[data-val="${newSectionGrp}"]`);
-        if (currentGrpBtn.classList.contains('disabled')) {
-            const firstAvailable = grpContainer.querySelector('.course-button:not(.disabled)');
+        const firstAvailable = grpContainer.querySelector('.course-button:not(.disabled)');
+
+        if (forceSelectFirst || !currentGrpBtn || currentGrpBtn.classList.contains('disabled')) {
             if (firstAvailable) {
                 Array.from(grpContainer.children).forEach(b => b.classList.remove('active'));
                 firstAvailable.classList.add('active');
                 newSectionGrp = firstAvailable.dataset.val;
             }
+        } else {
+            Array.from(grpContainer.children).forEach(b => b.classList.remove('active'));
+            currentGrpBtn.classList.add('active');
         }
     };
 
@@ -2381,14 +2681,13 @@ function showCourseEditorDialog(courseName, courseData = null) {
                 Array.from(container.children).forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
                 onClick(btn.dataset.val);
-                if (container === catContainer) updateAvailableOptions();
+                if (container === catContainer) updateAvailableOptions(true);
             }
         });
     };
     bindToggleGroup(catContainer, (val) => newSectionCat = val);
     bindToggleGroup(grpContainer, (val) => newSectionGrp = val);
-    grpContainer.querySelector('[data-val="A"]').classList.add('active');
-    updateAvailableOptions();
+    updateAvailableOptions(true);
 
     addSectionBtn.onclick = () => {
         const fullSection = `${newSectionCat} ${newSectionGrp}`;
@@ -2462,7 +2761,7 @@ function showCourseEditorDialog(courseName, courseData = null) {
                 if (loader) loader.style.display = 'none';
                 if (data && data.staff) {
                     staffList = data.staff;
-                    staffList.sort((a, b) => a.name.localeCompare(b.name));
+                    staffList.sort((a, b) => getCleanStaffNameForSort(a.name).localeCompare(getCleanStaffNameForSort(b.name)));
                     renderStaffList();
                 }
             })
@@ -2483,9 +2782,14 @@ function showCourseEditorDialog(courseName, courseData = null) {
         const btn = e.target;
         const nameInput = document.getElementById('edit-c-name');
         const rawName = nameInput.value.trim();
-        const systemName = rawName.replace(/\s+/g, '_');
+        let systemName = rawName.replace(/\s+/g, '_');
 
-        // --- VALIDATION: Max Length ---
+        // --- VALIDATION: Required & Max Length ---
+        if (!systemName) {
+            showInputError(nameInput, 'Course code is required.');
+            return;
+        }
+
         if (systemName.length > 50) {
             showInputError(nameInput, 'Name is too long (max 50 chars).');
             return;
@@ -2495,6 +2799,30 @@ function showCourseEditorDialog(courseName, courseData = null) {
         if (/[:\\\/?*\[\]]/.test(systemName)) {
             showInputError(nameInput, 'Name contains invalid characters (: \\ / ? * [ ]).');
             return;
+        }
+
+        const isArchived = (isGlobalAdmin && !isNew && document.getElementById('edit-c-archived'))
+            ? document.getElementById('edit-c-archived').checked
+            : (data.archived || false);
+
+        // Ensure archived course has an identifying suffix so it frees the active name
+        const eisVal = (document.getElementById('edit-c-eis')?.value || data.eisId || '').trim();
+        const archSuffix = eisVal ? `_${eisVal}` : '_archived';
+        if (isArchived && !systemName.endsWith(archSuffix) && !systemName.toLowerCase().endsWith('_archived')) {
+            systemName = systemName + archSuffix;
+        }
+
+        // Duplicate name validation
+        if (isNew) {
+            if (courseInfoMap && courseInfoMap[systemName]) {
+                showInputError(nameInput, `A course named '${systemName.replace(/_/g, ' ')}' already exists.`);
+                return;
+            }
+        } else if (courseName && systemName !== courseName) {
+            if (courseInfoMap && courseInfoMap[systemName]) {
+                showInputError(nameInput, `Cannot rename: '${systemName.replace(/_/g, ' ')}' already exists.`);
+                return;
+            }
         }
 
         btn.disabled = true;
@@ -2511,7 +2839,7 @@ function showCourseEditorDialog(courseName, courseData = null) {
         const payload = {
             originalName: courseName,
             courseName: systemName, // SEND UNDERSCORES
-            defaultHours: document.getElementById('edit-c-hours').value,
+            defaultHours: data.defaultHours || '2',
             startDate: document.getElementById('edit-c-start').value,
             endDate: document.getElementById('edit-c-end').value,
             holidayStartDate: document.getElementById('edit-c-holiday-start').value,
@@ -2520,7 +2848,7 @@ function showCourseEditorDialog(courseName, courseData = null) {
             availableSections: currentSections.join(', '),
             adminEmails: isGlobalAdmin ? finalAdminString : (data.adminEmails || '')
         };
-        if (isGlobalAdmin && !isNew) payload.archived = document.getElementById('edit-c-archived').checked;
+        if (isGlobalAdmin && !isNew) payload.archived = isArchived;
 
         try {
             const res = await callWebApp('saveCourseSettings_Admin', payload, 'POST');
@@ -2578,7 +2906,7 @@ function showAdminProfileDialog() {
     dialogBackdrop.setAttribute('class', 'dialog-backdrop');
     const dialog = document.createElement('div');
     dialog.setAttribute('class', 'dialog');
-    dialog.style.maxWidth = '900px';
+    dialog.style.maxWidth = '1000px';
     dialog.style.height = '85vh';
     dialog.setAttribute('role', 'dialog');
 
@@ -2586,12 +2914,14 @@ function showAdminProfileDialog() {
     let avatarClickCount = 0;
     let lastAvatarClickTime = 0;
 
+    const avatarUrl = currentUser.picture || getAvatarFallbackUrl(currentUser.name);
+
     // --- Header (Unified "Global Settings" Look) ---
     const headerHtml = `
     <div class="settings-modal-header">
         <div style="display:flex; align-items:center; gap:15px;">
             <div style="position:relative; width:48px; height:48px; cursor: default;" id="non-admin-profile-pic-container">
-                <img id="profile-avatar-img" src="${currentUser.picture}" style="width:100%; height:100%; border-radius:50%; border:2px solid var(--card-background); box-shadow:0 2px 8px rgba(0,0,0,0.1); object-fit:cover;">
+                <img id="profile-avatar-img" src="${avatarUrl}" referrerpolicy="no-referrer" onerror="this.onerror=null; this.src='${getAvatarFallbackUrl(currentUser.name)}';" style="width:100%; height:100%; border-radius:50%; border:2px solid var(--card-background); box-shadow:0 2px 8px rgba(0,0,0,0.1); object-fit:cover;">
             </div>
             <div>
                 <h3 style="margin:0; font-size:1.3em;">My Courses</h3>
@@ -2601,20 +2931,28 @@ function showAdminProfileDialog() {
         <button id="close-profile-btn" class="btn-icon" style="background:transparent; color:var(--text-color); font-size:1.2em;"><i class="fa-solid fa-xmark"></i></button>
     </div>`;
 
-    // --- Initial State: Loading ---
+    // --- HTML Structure (Unified with Global Settings) ---
     dialog.innerHTML = `
     ${headerHtml}
-    <div class="dialog-content" style="overflow-y:auto; position:relative;">
-        <div id="profile-loader" style="display:flex; justify-content:center; align-items:center; height:200px;">
+    <div class="dialog-content" style="padding:0; position:relative; display:flex; flex-direction:column; overflow:hidden; height:calc(85vh - 70px);">
+        <div id="profile-loader" class="settings-loader-overlay">
             <div class="loading-spinner"></div>
         </div>
-        <div id="profile-content" style="opacity:0; transition:opacity 0.3s;"></div>
+        <div class="settings-section" style="display:flex; flex-direction:column; height:100%;">
+            <div class="settings-controls-bar" style="padding:15px 20px; border-bottom:1px solid rgba(0,0,0,0.05); display:flex; gap:10px; align-items:center;">
+                <div class="input-with-icon" style="flex-grow:1;">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    <input type="text" id="lecturer-course-search-input" class="settings-search-input" placeholder="Search courses...">
+                </div>
+            </div>
+            <div style="flex-grow:1; overflow-y:auto; padding:20px;" id="lecturer-courses-container"></div>
+        </div>
     </div>`;
 
     dialogBackdrop.appendChild(dialog);
     document.body.appendChild(dialogBackdrop);
 
-    // --- Bomb Logic (Attached immediately) ---
+    // --- Bomb Logic ---
     const profilePicContainer = dialog.querySelector('#non-admin-profile-pic-container');
     profilePicContainer.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -2637,60 +2975,23 @@ function showAdminProfileDialog() {
 
     // --- Async Data Fetch ---
     (async () => {
-        await fetchCourseInfo(); // Fetch data while spinner shows
+        await fetchCourseInfo();
+        const loader = dialog.querySelector('#profile-loader');
+        if (loader) loader.style.display = 'none';
 
-        const myCourses = availableCourses.filter(c => courseInfoMap[c]);
-        let html = '';
-
-        if (myCourses.length > 0) {
-            html = `<div class="modern-course-grid">`;
-            myCourses.forEach(courseName => {
-                const data = courseInfoMap[courseName];
-                const category = (data.defaultCategory || 'theory').toLowerCase();
-                let stripClass = category.includes('theory') ? 'strip-theory' :
-                    category.includes('lab') ? 'strip-lab' : 'strip-practice';
-
-                html += `
-                <div class="modern-course-card" id="card-${escapeHtml(courseName)}">
-                    <div class="card-color-strip ${stripClass}"></div>
-                    <div class="card-body">
-                        <div class="card-title-row">
-                            <div class="card-course-name">${escapeHtml(courseName.replace(/_/g, ' '))}</div>
-                            ${data.eisId ? `<span class="card-eis-badge">#${escapeHtml(data.eisId)}</span>` : ''}
-                        </div>
-                        <div class="card-meta-row">
-                            <div class="card-meta-item"><i class="fa-regular fa-clock"></i> ${escapeHtml(data.defaultHours || 0)}h</div>
-                            <div class="card-meta-item" style="text-transform:capitalize;"><i class="fa-solid fa-tag"></i> ${category}</div>
-                        </div>
-                    </div>
-                    <div class="card-footer">
-                        <span class="admin-pill"><i class="fa-solid fa-user-tie"></i> Course Admin</span>
-                        <i class="fa-solid fa-pen-to-square"></i>
-                    </div>
-                </div>`;
-            });
-            html += `</div>`;
-        } else {
-            html = `<div class="empty-logs"><p>No active courses assigned.</p></div>`;
-        }
-
-        const contentDiv = dialog.querySelector('#profile-content');
-        const loaderDiv = dialog.querySelector('#profile-loader');
-
-        contentDiv.innerHTML = html;
-        loaderDiv.style.display = 'none';
-        contentDiv.style.opacity = '1';
-
-        // Attach listeners to cards
-        myCourses.forEach(courseName => {
-            const card = document.getElementById(`card-${courseName}`);
-            if (card) {
-                card.onclick = () => {
-                    close();
-                    showCourseEditorDialog(courseName, courseInfoMap[courseName]);
-                };
-            }
+        const myCourseDict = {};
+        availableCourses.forEach(c => {
+            if (courseInfoMap[c]) myCourseDict[c] = courseInfoMap[c];
         });
+
+        renderCoursesInSettings(myCourseDict, '', 'lecturer-courses-container');
+
+        const searchInput = dialog.querySelector('#lecturer-course-search-input');
+        if (searchInput) {
+            searchInput.addEventListener('input', (e) => {
+                renderCoursesInSettings(myCourseDict, e.target.value, 'lecturer-courses-container');
+            });
+        }
     })();
 }
 
@@ -2698,48 +2999,63 @@ function showAdminProfileDialog() {
 * Shows the Student Profile Dialog (Revamped Design)
 */
 async function showStudentProfileDialog() {
-    // 1. Find UIDs (Local)
+    // 1. Find IDs & UIDs (Local)
+    let userIDs = [];
     let userUIDs = [];
     for (const dbKey in databaseMap) {
         const entry = databaseMap[dbKey];
         if (entry.email && entry.email.toLowerCase() === currentUser.email.toLowerCase()) {
-            userUIDs = entry.uids;
+            userIDs = entry.uids || [];
+            userUIDs = entry.hardware_uids || (entry.uids ? entry.uids.map(convertExternalIdToUid).filter(Boolean) : []);
             break;
         }
     }
 
-    // 2. Build UID List HTML
+    // 2. Build ID / UID Badges HTML (Compact)
     let uidContent = '';
-    if (userUIDs.length > 0) {
-        const listItems = userUIDs.map(uid =>
-            `<li class="profile-uid-badge">${escapeHtml(uid)}</li>`
-        ).join('');
-        uidContent = `<ul class="profile-uid-list">${listItems}</ul>`;
+    const maxCount = Math.max(userIDs.length, userUIDs.length);
+    if (maxCount > 0) {
+        const badges = [];
+        for (let i = 0; i < maxCount; i++) {
+            const idVal = userIDs[i] || (userUIDs[i] ? convertUidToExternalId(userUIDs[i]) : '');
+            const hwVal = userUIDs[i] || (userIDs[i] ? convertExternalIdToUid(userIDs[i]) : '');
+            if (idVal || hwVal) {
+                badges.push(`
+                    <li class="profile-uid-badge" style="display:inline-flex; align-items:center; gap:6px; padding:4px 10px; margin:3px; font-size:0.85em; background:rgba(0,0,0,0.04); border-radius:6px;">
+                        <span><i class="fa-solid fa-id-card" style="opacity:0.6; margin-right:2px;"></i> ${escapeHtml(idVal || '—')}</span>
+                        ${hwVal ? `<span style="opacity:0.3;">|</span><span style="font-family:monospace; opacity:0.8;"><i class="fa-solid fa-wifi" style="font-size:0.85em; opacity:0.6; margin-right:2px;"></i>${escapeHtml(hwVal)}</span>` : ''}
+                    </li>
+                `);
+            }
+        }
+        uidContent = `<ul class="profile-uid-list" style="margin:6px 0; padding:0; display:flex; flex-wrap:wrap; justify-content:center; list-style:none;">${badges.join('')}</ul>`;
     } else {
-        uidContent = `<p style="text-align: center; opacity: 0.6; font-style:italic;">No UIDs linked.</p>`;
+        uidContent = `<p style="text-align:center; opacity:0.6; font-style:italic; font-size:0.85em; margin:6px 0;">No IDs linked.</p>`;
     }
 
-    // 3. Prepare Base HTML
-    // Added: Link to https://myaccount.google.com/ around the avatar
+    // 3. Compact Base HTML
+    const studentAvatarUrl = currentUser.picture || getAvatarFallbackUrl(currentUser.name);
     const profileHtml = `
-<div class="profile-header-section">
-    <a href="https://myaccount.google.com/" target="_blank" title="Manage Google Account">
-        <img src="${currentUser.picture}" class="profile-avatar-large" alt="Avatar" style="cursor:pointer;">
-    </a>
-    <div style="text-align:center;">
-        <h3 class="profile-name-large">${escapeHtml(currentUser.name)}</h3>
-        <p class="profile-email-large">${escapeHtml(currentUser.email)}</p>
+<div style="user-select:none; -webkit-user-select:none;">
+    <div class="profile-header-section" style="display:flex; flex-direction:column; align-items:center; text-align:center; gap:8px; margin-bottom:12px; padding-bottom:12px; border-bottom:1px solid rgba(0,0,0,0.06);">
+        <a href="https://myaccount.google.com/" target="_blank" title="Manage Google Account">
+            <img src="${studentAvatarUrl}" class="profile-avatar-large" alt="Avatar" referrerpolicy="no-referrer" onerror="this.onerror=null; this.src='${getAvatarFallbackUrl(currentUser.name)}';" style="cursor:pointer; width:56px; height:56px; border-radius:50%; object-fit:cover; border:2px solid var(--card-background); box-shadow:0 2px 6px rgba(0,0,0,0.1);">
+        </a>
+        <div style="text-align:center; max-width:100%;">
+            <h3 class="profile-name-large" style="margin:0 0 3px 0; font-size:1.15em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(currentUser.name)}</h3>
+            <p class="profile-email-large" style="margin:0; font-size:0.85em; opacity:0.7; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(currentUser.email)}</p>
+        </div>
     </div>
-</div>
 
-<div class="form-section-title">My Student IDs</div>
-${uidContent}
+    <div class="form-section-title" style="margin-top:0; font-size:0.9em; text-align:center;">My Student IDs</div>
+    ${uidContent}
 
-<div class="form-section-title" style="margin-top:20px;">Permission History</div>
-<div id="student-requests-loader" style="text-align:center; padding:20px; opacity:0.6;">
-    <i class="fa-solid fa-circle-notch fa-spin"></i> Loading requests...
+    <div class="form-section-title" style="margin-top:14px; font-size:0.9em; text-align:center;">Permission History</div>
+    <div id="student-requests-loader" style="text-align:center; padding:15px; opacity:0.6; font-size:0.9em;">
+        <i class="fa-solid fa-circle-notch fa-spin"></i> Loading requests...
+    </div>
+    <div id="student-requests-list" style="max-height:220px; overflow-y:auto; padding-right:2px;"></div>
 </div>
-<div id="student-requests-list"></div>
 `;
 
     // 4. Show Dialog
@@ -2755,29 +3071,30 @@ ${uidContent}
         if (!listContainer) return;
 
         if (!requests || requests.length === 0) {
-            listContainer.innerHTML = `<div class="empty-logs" style="padding:10px;">No requests found.</div>`;
+            listContainer.innerHTML = `<div class="empty-logs" style="padding:10px; font-size:0.85em;">No requests found.</div>`;
         } else {
-            // Build Cards
+            // Build Cards with Clean Course Name (no EIS ID)
             const cardsHtml = requests.map(req => {
                 const statusClass = `status-${req.status.toLowerCase()}`;
+                const cleanCourse = getCleanCourseCode(req.course, courseInfoMap[req.course]?.eisId);
 
                 // Admin note logic
                 let noteHtml = '';
                 if (req.adminNotes) {
-                    noteHtml = `<div class="req-note"><i class="fa-solid fa-reply" style="margin-right:5px; opacity:0.6;"></i> <strong>Reply:</strong> ${escapeHtml(req.adminNotes)}</div>`;
+                    noteHtml = `<div class="req-note" style="margin-top:4px; font-size:0.8em; padding:4px 8px; background:rgba(0,0,0,0.03); border-radius:4px;"><i class="fa-solid fa-reply" style="margin-right:5px; opacity:0.6;"></i> <strong>Reply:</strong> ${escapeHtml(req.adminNotes)}</div>`;
                 } else if (req.reason) {
-                    noteHtml = `<div class="req-note" style="font-style:italic; opacity:0.8;">"${escapeHtml(req.reason)}"</div>`;
+                    noteHtml = `<div class="req-note" style="margin-top:4px; font-size:0.8em; font-style:italic; opacity:0.8;">"${escapeHtml(req.reason)}"</div>`;
                 }
 
                 return `
-        <div class="req-card ${statusClass}">
-            <div class="req-header">
-                <div class="req-course">${escapeHtml(req.course.replace(/_/g, ' '))}</div>
-                <div class="req-status-pill">${escapeHtml(req.status)}</div>
+        <div class="req-card ${statusClass}" style="margin-bottom:8px; padding:8px 12px; border-radius:6px; border-left:3px solid var(--primary-color); background:rgba(0,0,0,0.02);">
+            <div class="req-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                <div class="req-course" style="font-size:0.92em; font-weight:600;">${escapeHtml(cleanCourse)}</div>
+                <div class="req-status-pill" style="font-size:0.75em; padding:2px 8px;">${escapeHtml(req.status)}</div>
             </div>
-            <div class="req-details">
-                <span><i class="fa-regular fa-calendar"></i> ${escapeHtml(req.absenceDate)}</span>
-                <span><i class="fa-regular fa-clock"></i> ${escapeHtml(req.hours)}</span>
+            <div class="req-details" style="font-size:0.82em; opacity:0.8; display:flex; gap:12px;">
+                <span><i class="fa-regular fa-calendar" style="margin-right:4px;"></i>${escapeHtml(req.absenceDate)}</span>
+                <span><i class="fa-regular fa-clock" style="margin-right:4px;"></i>${escapeHtml(req.hours)}</span>
             </div>
             ${noteHtml}
         </div>`;
@@ -2789,7 +3106,7 @@ ${uidContent}
     } catch (err) {
         const loader = document.getElementById('student-requests-loader');
         if (loader) {
-            loader.innerHTML = `<span style="color:var(--danger-color)"><i class="fa-solid fa-exclamation-circle"></i> Failed to load requests.</span>`;
+            loader.innerHTML = `<span style="color:var(--danger-color); font-size:0.85em;"><i class="fa-solid fa-exclamation-circle"></i> Failed to load requests.</span>`;
         }
     }
 }
@@ -3983,8 +4300,13 @@ async function onSuccessfulAuth(isRestore = false) {
 
         // Update UI (Moved outside the if-block so it runs for both modes)
         console.log('User:', currentUser.email);
-        userName.textContent = currentUser.name;
-        userAvatar.src = currentUser.picture;
+        if (!userName) userName = document.getElementById('user-name');
+        if (!userAvatar) userAvatar = document.getElementById('user-avatar');
+        if (userName) userName.textContent = currentUser.name;
+        if (userAvatar) {
+            userAvatar.referrerPolicy = 'no-referrer';
+            userAvatar.src = currentUser.picture || getAvatarFallbackUrl(currentUser.name);
+        }
 
         // 2. Get ALL boot data in ONE call (Admin Status + Course List)
         // This goes to YOUR backend, which knows how to handle the Kiosk token.
@@ -4208,24 +4530,24 @@ function showRegisterUIDDialog() {
         </div>`;
 
     dialog.innerHTML = `
-        <h3 class="dialog-title"><i class="fa-solid fa-id-card"></i> Register Your Student ID Card</h3>
+        <h3 class="dialog-title"><i class="fa-solid fa-id-card"></i> Register ID Card</h3>
         <div class="dialog-content"><p>Your details will be sent to the lecturer for approval.</p>
         <div class="form-group"><label class="dialog-label-fixed"><i class="fa-solid fa-quote-left"></i> Name:</label><input class="form-control" value="${escapeHtml(currentUser.name)}" disabled></div>
         <div class="form-group"><label class="dialog-label-fixed"><i class="fa-solid fa-at"></i> Email:</label><input class="form-control" value="${escapeHtml(currentUser.email)}" disabled></div>
         <div class="form-group">
-            <label class="dialog-label-fixed" for="register-uid-input"><i class="fa-solid fa-wifi"></i> UID:</label>
-            <input type="text" id="register-uid-input" class="form-control" placeholder="AB:CD:12:34">
+            <label class="dialog-label-fixed" for="register-hardware-uid"><i class="fa-solid fa-wifi"></i> UID:</label>
+            <input type="text" id="register-hardware-uid" class="form-control" placeholder="04:a2:3f:8a">
         </div>
         <div id="nfc-status-container"></div>
         </div><div class="dialog-actions">
-            <button id="cancel-register-btn" class="btn-red">Cancel</button>
-            <button id="submit-register-btn" class="btn-green" disabled>Submit</button>
+            <button id="cancel-register-btn" class="btn-red"><i class="fa-solid fa-xmark"></i> Cancel</button>
+            <button id="submit-register-btn" class="btn-green" disabled><i class="fa-solid fa-check"></i> Submit</button>
         </div>`;
 
     dialogBackdrop.appendChild(dialog);
     document.body.appendChild(dialogBackdrop);
 
-    const uidInput = document.getElementById('register-uid-input');
+    const hwInput = document.getElementById('register-hardware-uid');
     const submitBtn = document.getElementById('submit-register-btn');
     const nfcStatusContainer = document.getElementById('nfc-status-container');
     let registrationNfcController = null;
@@ -4237,11 +4559,10 @@ function showRegisterUIDDialog() {
     };
 
     const checkSubmitButton = () => {
-        submitBtn.disabled = uidInput.value.trim() === '';
+        submitBtn.disabled = hwInput.value.trim() === '';
     };
 
-    uidInput.addEventListener('input', checkSubmitButton);
-    uidInput.addEventListener('input', () => { delete uidInput.dataset.hardwareUid; });
+    hwInput.addEventListener('input', checkSubmitButton);
 
     // Start scanning if supported
     if (nfcSupported) {
@@ -4250,8 +4571,7 @@ function showRegisterUIDDialog() {
         const reader = new NDEFReader();
         reader.scan({ signal: registrationNfcController.signal }).then(() => {
             reader.onreading = ({ serialNumber }) => {
-                uidInput.dataset.hardwareUid = serialNumber;
-                uidInput.value = convertUidToExternalId(serialNumber);
+                hwInput.value = serialNumber;
                 playSound(true);
                 nfcStatusContainer.innerHTML = `<div class="sync-status success" style="justify-content: center; padding: 30px 0; font-size: 1em; color: var(--success-color);"><i class="fa-solid fa-circle-check"></i> <span>Card Scanned!</span></div>`;
                 checkSubmitButton();
@@ -4268,23 +4588,24 @@ function showRegisterUIDDialog() {
     }
 
     document.getElementById('submit-register-btn').addEventListener('click', () => {
-        const uid = convertUidToExternalId(uidInput.value.trim());
-        if (!uid || !currentUser) return;
+        const rawHw = hwInput.value.trim();
+        if (!rawHw || !currentUser) return;
 
-        const submitBtn = document.getElementById('submit-register-btn');
+        const convertedId = convertUidToExternalId(rawHw) || rawHw;
+
         submitBtn.disabled = true;
         submitBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Submitting...';
 
         const submitData = {
-            action: "submitRegistration", // <-- ADD THIS LINE
+            action: "submitRegistration",
             name: currentUser.name,
             email: currentUser.email,
-            uid: uid
+            uid: convertedId,
+            hardwareUid: rawHw
         };
 
-        // Use fetch to send the data and wait for a real response
         callWebApp('submitRegistration', submitData, 'POST')
-            .then(data => { // 'data' is already the parsed result from ContentService
+            .then(data => {
                 if (data && data.result === 'success') {
                     showNotification('success', 'Submission Sent!', 'Your Student ID Card application has been sent for approval.');
                     closeDialog();
@@ -4324,6 +4645,9 @@ function showRegisterUIDDialogWithPrefill(prefillUid) {
         ? 'Add this student directly to the database.'
         : 'Submit a registration request for approval.';
 
+    const initHw = (prefillUid && prefillUid.includes(':')) ? prefillUid : convertExternalIdToUid(prefillUid);
+    const initId = (prefillUid && !prefillUid.includes(':')) ? prefillUid : convertUidToExternalId(prefillUid);
+
     dialog.innerHTML = `
         <h3 class="dialog-title"><i class="fa-solid fa-address-card"></i> Register Student</h3>
         <div class="dialog-content">
@@ -4343,8 +4667,13 @@ function showRegisterUIDDialogWithPrefill(prefillUid) {
             </div>
 
             <div class="form-group">
-                <label class="dialog-label-fixed"><i class="fa-solid fa-wifi"></i> UID</label>
-                <input type="text" id="register-uid" class="form-control" value="${escapeHtml(prefillUid)}" disabled style="background-color:rgba(0,0,0,0.05); color:var(--text-color); opacity:0.7;">
+                <label class="dialog-label-fixed" for="register-prefill-hw-uid"><i class="fa-solid fa-wifi"></i> UID</label>
+                <input type="text" id="register-prefill-hw-uid" class="form-control" value="${escapeHtml(initHw)}" placeholder="04:a2:3f:8a">
+            </div>
+
+            <div class="form-group">
+                <label class="dialog-label-fixed" for="register-prefill-student-id"><i class="fa-solid fa-id-card"></i> ID</label>
+                <input type="text" id="register-prefill-student-id" class="form-control" value="${escapeHtml(initId)}" placeholder="Auto-calculated from UID" disabled style="opacity:0.75; cursor:not-allowed; background:rgba(0,0,0,0.04);">
             </div>
 
         </div>
@@ -4362,13 +4691,23 @@ function showRegisterUIDDialogWithPrefill(prefillUid) {
         closeDialogMode();
     };
 
+    const prefillHwInput = document.getElementById('register-prefill-hw-uid');
+    const prefillIdInput = document.getElementById('register-prefill-student-id');
+
+    // Real-time calculation from UID to ID
+    if (prefillHwInput && prefillIdInput) {
+        prefillHwInput.addEventListener('input', () => {
+            const raw = prefillHwInput.value.trim();
+            prefillIdInput.value = convertUidToExternalId(raw) || '';
+        });
+    }
+
     document.getElementById('cancel-register-btn').addEventListener('click', closeDialog);
 
     const submitBtn = document.getElementById('submit-register-btn');
     submitBtn.addEventListener('click', async () => {
         const nameInput = document.getElementById('register-name');
         const emailInput = document.getElementById('register-email');
-        const uidInput = document.getElementById('register-uid');
 
         // Clear previous errors
         clearInputError(nameInput);
@@ -4376,35 +4715,38 @@ function showRegisterUIDDialogWithPrefill(prefillUid) {
 
         const name = nameInput.value.trim();
         const email = emailInput.value.trim();
-        const uid = convertUidToExternalId(uidInput.value.trim());
+        const rawHw = prefillHwInput.value.trim();
+        const rawId = prefillIdInput.value.trim();
+        const uid = rawId || convertUidToExternalId(rawHw) || rawHw;
+        const hardwareUid = rawHw || convertExternalIdToUid(rawId) || rawId;
 
         // Validation
-        let hasError = false;
-        if (!name) {
-            showInputError(nameInput, 'Name is required');
-            hasError = true;
+        let isValid = true;
+        if (name === '') {
+            showInputError(nameInput, 'Name is required.');
+            isValid = false;
         }
-        if (!email) {
-            showInputError(emailInput, 'Email is required');
-            hasError = true;
-        } else if (!isValidEmail(email)) {
-            showInputError(emailInput, 'Invalid email format');
-            hasError = true;
+        if (!isValidEmail(email)) {
+            showInputError(emailInput, 'A valid email is required.');
+            isValid = false;
         }
+        if (!uid && !hardwareUid) {
+            showInputError(prefillIdInput, 'UID or ID is required.');
+            isValid = false;
+        }
+        if (!isValid) return;
 
-        if (hasError) return;
-
-        // Disable button and show loading
         submitBtn.disabled = true;
-        submitBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Processing...';
+        submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Processing...';
 
         try {
             const submissionData = {
                 name: name,
                 email: email,
                 uid: uid,
+                hardwareUid: hardwareUid,
                 sentBy: {
-                    name: currentUser?.name || '',
+                    name: currentUser?.name || 'Admin',
                     email: currentUser?.email || ''
                 }
             };
@@ -4448,23 +4790,29 @@ function showRegisterUIDDialogWithPrefill(prefillUid) {
 function findDuplicateInDatabase(entry) {
     const norm = (str) => (str || '').toString().normalize("NFD").replace(/[\u00e0-\u00f6]/g, "").toLowerCase().trim();
     const newUid = norm(entry.uid);
+    const newHwUid = norm(entry.hardwareUid);
     const newName = norm(entry.name);
     const newEmail = norm(entry.email);
 
     for (const [dbKey, studentData] of Object.entries(databaseMap)) {
-        const existingUids = studentData.uids.map(norm);
+        const existingUids = (studentData.uids || []).map(norm);
+        const existingHwUids = (studentData.hardware_uids || []).map(norm);
         const existingName = norm(studentData.name);
         const existingEmail = norm(studentData.email);
 
         const duplicateData = {
-            index: dbKey, // This is the PRIMARY KEY from the databaseMap
+            index: dbKey,
             name: studentData.name,
-            uid: studentData.uids.join(', '),
+            uids: studentData.uids || [],
+            hardware_uids: studentData.hardware_uids || [],
+            uid: (studentData.uids || []).join(', '),
+            hardwareUid: (studentData.hardware_uids || []).join(', '),
             email: studentData.email || '',
-            rowIndex: parseInt(dbKey) // Use the index as the key
+            rowIndex: parseInt(dbKey)
         };
 
-        if (existingUids.some(eu => uidsEquivalent(eu, newUid))) return { type: 'uid', duplicate: duplicateData };
+        if (existingUids.some(eu => uidsEquivalent(eu, newUid) || (newHwUid && uidsEquivalent(eu, newHwUid)))) return { type: 'uid', duplicate: duplicateData };
+        if (existingHwUids.some(eu => uidsEquivalent(eu, newUid) || (newHwUid && uidsEquivalent(eu, newHwUid)))) return { type: 'uid', duplicate: duplicateData };
         if (newEmail && existingEmail && existingEmail === newEmail) return { type: 'email', duplicate: duplicateData };
         if (existingName === newName) return { type: 'name', duplicate: duplicateData };
     }
@@ -4489,22 +4837,57 @@ function showDuplicateWarningForNewEntry(newData, duplicates, onCompleteCallback
     const norm = (str) => (str || '').toString().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
     const isNameMatch = norm(newData.name) === norm(existing.name);
     const isEmailMatch = norm(newData.email) === norm(existing.email);
-    const existingUids = (existing.uid || '').toString().split(',').map(norm);
-    const isUidMatch = existingUids.includes(norm(newData.uid));
+    const existingUids = (existing.uids || (existing.uid || '').toString().split(',')).map(norm);
+    const existingHwUids = (existing.hardware_uids || (existing.hardwareUid || '').toString().split(',')).map(norm);
+    const isUidMatch = existingUids.includes(norm(newData.uid)) || existingHwUids.includes(norm(newData.hardwareUid || newData.uid));
+
+    // --- Format Existing IDs and UIDs ---
+    let existingIdsList = [];
+    if (existing.uids && Array.isArray(existing.uids) && existing.uids.length > 0) {
+        existingIdsList = existing.uids;
+    } else if (existing.uid) {
+        existingIdsList = existing.uid.split(',').map(s => s.trim());
+    } else if (existing.hardware_uids && existing.hardware_uids.length > 0) {
+        existingIdsList = existing.hardware_uids.map(convertUidToExternalId).filter(Boolean);
+    }
+
+    let existingHwList = [];
+    if (existing.hardware_uids && Array.isArray(existing.hardware_uids) && existing.hardware_uids.length > 0) {
+        existingHwList = existing.hardware_uids;
+    } else if (existing.hardwareUid) {
+        existingHwList = existing.hardwareUid.split(',').map(s => s.trim());
+    } else if (existingIdsList.length > 0) {
+        existingHwList = existingIdsList.map(convertExternalIdToUid).filter(Boolean);
+    }
+
+    const existingIdsDisplay = existingIdsList.length > 0 ? existingIdsList.join(', ') : '—';
+    const existingHwDisplay = existingHwList.length > 0 ? existingHwList.join(', ') : '—';
+
+    // --- Format New Data ID and UID ---
+    const rawNewId = newData.uid ? String(newData.uid).trim() : '';
+    const rawNewHw = (newData.hardwareUid || newData.hardware_uid) ? String(newData.hardwareUid || newData.hardware_uid).trim() : '';
+
+    const newStudentId = (rawNewId && !rawNewId.includes(':'))
+        ? rawNewId
+        : (rawNewHw ? convertUidToExternalId(rawNewHw) : (rawNewId ? convertUidToExternalId(rawNewId) : '—'));
+
+    const newHardwareUid = (rawNewHw && rawNewHw.includes(':'))
+        ? rawNewHw
+        : (rawNewId ? (convertExternalIdToUid(rawNewId) || rawNewId) : (rawNewHw || '—'));
 
     // --- Dynamic HTML ---
     const nameActionHTML = isNameMatch ?
-        '<span style="opacity: 0.6; font-size: 0.9em; margin-top: 5px; text-align: right;">(Names match)</span>' :
-        `<div class="field-action" style="margin-top: 5px;"><input type="checkbox" id="replace-name-check" data-field="name"><label for="replace-name-check">Replace</label></div>`;
+        '<span style="opacity: 0.6; font-size: 0.85em; white-space: nowrap; min-width: 90px; text-align: right;">(Matches)</span>' :
+        `<div class="field-action" style="display:flex; align-items:center; gap:6px; white-space:nowrap; min-width:90px; justify-content:flex-end; margin:0;"><input type="checkbox" id="replace-name-check" data-field="name" style="cursor:pointer; margin:0;"><label for="replace-name-check" style="margin:0; cursor:pointer; font-weight:600; font-size:0.9em;">Replace</label></div>`;
 
     const emailActionHTML = isEmailMatch ?
-        '<span style="opacity: 0.6; font-size: 0.9em; margin-top: 5px; text-align: right;">(Emails match)</span>' :
-        `<div class="field-action" style="margin-top: 5px;"><input type="checkbox" id="replace-email-check" data-field="email"><label for="replace-email-check">Replace</label></div>`;
+        '<span style="opacity: 0.6; font-size: 0.85em; white-space: nowrap; min-width: 90px; text-align: right;">(Matches)</span>' :
+        `<div class="field-action" style="display:flex; align-items:center; gap:6px; white-space:nowrap; min-width:90px; justify-content:flex-end; margin:0;"><input type="checkbox" id="replace-email-check" data-field="email" style="cursor:pointer; margin:0;"><label for="replace-email-check" style="margin:0; cursor:pointer; font-weight:600; font-size:0.9em;">Replace</label></div>`;
 
     const uidActionHTML = isUidMatch ?
-        '<span style="opacity: 0.6; font-size: 0.9em; margin-top: 5px; text-align: right;">(UID exists)</span>' :
-        `<div class="field-action" style="margin-top: 5px;">
-            <select id="uid-action-select" class="form-control" style="padding: 4px 8px; font-size: 0.9em;">
+        '<span style="opacity: 0.6; font-size: 0.85em; white-space: nowrap; min-width: 120px; text-align: right;">(Exists)</span>' :
+        `<div class="field-action" style="white-space:nowrap; min-width:120px; margin:0;">
+            <select id="uid-action-select" class="form-control" style="padding:4px 8px; font-size:0.85em; height:34px;">
                 <option value="none" selected>Do Nothing</option>
                 <option value="merge">Merge</option>
                 <option value="replace">Replace</option>
@@ -4524,8 +4907,12 @@ function showDuplicateWarningForNewEntry(newData, duplicates, onCompleteCallback
                 <input class="form-control" value="${escapeHtml(existing.name)}" disabled style="background: transparent; border: none; padding: 5px; height: auto;">
             </div>
             <div class="form-group" style="margin-bottom: 8px;">
+                <label class="dialog-label-fixed"><i class="fa-solid fa-id-card"></i> ID(s)</label>
+                <input class="form-control" value="${escapeHtml(existingIdsDisplay)}" disabled style="background: transparent; border: none; padding: 5px; height: auto;">
+            </div>
+            <div class="form-group" style="margin-bottom: 8px;">
                 <label class="dialog-label-fixed"><i class="fa-solid fa-wifi"></i> UID(s)</label>
-                <input class="form-control" value="${escapeHtml(existing.uid)}" disabled style="background: transparent; border: none; padding: 5px; height: auto;">
+                <input class="form-control" value="${escapeHtml(existingHwDisplay)}" disabled style="background: transparent; border: none; padding: 5px; height: auto;">
             </div>
             <div class="form-group" style="margin-bottom: 0;">
                 <label class="dialog-label-fixed"><i class="fa-solid fa-at"></i> Email</label>
@@ -4537,28 +4924,27 @@ function showDuplicateWarningForNewEntry(newData, duplicates, onCompleteCallback
         
         <div style="font-weight: 700; margin-bottom: 10px; color: var(--text-color); font-size: 0.9em; text-transform: uppercase;">New Entry</div>
         
-        <div class="form-group" style="align-items: flex-start;">
-            <label class="dialog-label-fixed" style="margin-top: 10px;"><i class="fa-solid fa-quote-left"></i> Name</label>
-            <div style="flex-grow: 1;">
-                <input class="form-control" value="${escapeHtml(newData.name)}" disabled>
-                ${nameActionHTML}
-            </div>
+        <div class="form-group" style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+            <label class="dialog-label-fixed"><i class="fa-solid fa-quote-left"></i> Name</label>
+            <input class="form-control" value="${escapeHtml(newData.name)}" disabled style="flex: 1;">
+            ${nameActionHTML}
         </div>
         
-        <div class="form-group" style="align-items: flex-start;">
-            <label class="dialog-label-fixed" style="margin-top: 10px;"><i class="fa-solid fa-at"></i> Email</label>
-            <div style="flex-grow: 1;">
-                <input class="form-control" value="${escapeHtml(newData.email)}" disabled>
-                ${emailActionHTML}
-            </div>
+        <div class="form-group" style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+            <label class="dialog-label-fixed"><i class="fa-solid fa-at"></i> Email</label>
+            <input class="form-control" value="${escapeHtml(newData.email)}" disabled style="flex: 1;">
+            ${emailActionHTML}
         </div>
         
-        <div class="form-group" style="align-items: flex-start;">
-            <label class="dialog-label-fixed" style="margin-top: 10px;"><i class="fa-solid fa-wifi"></i> UID</label>
-            <div style="flex-grow: 1;">
-                <input class="form-control" value="${escapeHtml(newData.uid)}" disabled>
-                ${uidActionHTML}
-            </div>
+        <div class="form-group" style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+            <label class="dialog-label-fixed"><i class="fa-solid fa-id-card"></i> ID</label>
+            <input class="form-control" value="${escapeHtml(newStudentId)}" disabled style="flex: 1;">
+            ${uidActionHTML}
+        </div>
+        <div class="form-group" style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+            <label class="dialog-label-fixed"><i class="fa-solid fa-wifi"></i> UID</label>
+            <input class="form-control" value="${escapeHtml(newHardwareUid)}" disabled style="flex: 1;">
+            <span style="min-width: 120px;"></span>
         </div>
     </div>
     <div class="dialog-actions">
@@ -4594,7 +4980,14 @@ function showDuplicateWarningForNewEntry(newData, duplicates, onCompleteCallback
     addAnywayBtn.addEventListener('click', () => {
         const existingKeys = Object.keys(databaseMap).map(Number);
         const newDbKey = existingKeys.length > 0 ? Math.max(...existingKeys) + 1 : 1;
-        databaseMap[newDbKey] = { name: newData.name, email: newData.email, uids: [newData.uid], hardware_uids: [newData.hardwareUid || newData.uid] };
+        const studentId = newStudentId !== '—' ? newStudentId : (newData.uid || '');
+        const hwUid = newHardwareUid !== '—' ? newHardwareUid : (newData.hardwareUid || '');
+        databaseMap[newDbKey] = {
+            name: newData.name,
+            email: newData.email,
+            uids: studentId ? [studentId] : [],
+            hardware_uids: hwUid ? [hwUid] : []
+        };
         showNotification('success', 'Entry Added', `Added ${newData.name} as a separate entry.`);
         onCompleteCallback(); closeDialog();
     });
@@ -4611,16 +5004,21 @@ function showDuplicateWarningForNewEntry(newData, duplicates, onCompleteCallback
         if (nameCheck && nameCheck.checked) existingEntryData.name = newData.name;
         if (emailCheck && emailCheck.checked) existingEntryData.email = newData.email;
         if (uidSelect) {
-            const hardwareUid = newData.hardwareUid || newData.uid;
+            const studentId = newStudentId !== '—' ? newStudentId : (newData.uid || '');
+            const hwUid = newHardwareUid !== '—' ? newHardwareUid : (newData.hardwareUid || '');
+
             if (uidSelect.value === 'merge') {
-                if (!existingEntryData.uids.includes(newData.uid)) {
-                    existingEntryData.uids.push(newData.uid);
-                    existingEntryData.hardware_uids = existingEntryData.hardware_uids || [];
-                    existingEntryData.hardware_uids.push(hardwareUid);
+                existingEntryData.uids = existingEntryData.uids || [];
+                existingEntryData.hardware_uids = existingEntryData.hardware_uids || [];
+                if (studentId && !existingEntryData.uids.includes(studentId)) {
+                    existingEntryData.uids.push(studentId);
+                }
+                if (hwUid && !existingEntryData.hardware_uids.includes(hwUid)) {
+                    existingEntryData.hardware_uids.push(hwUid);
                 }
             } else if (uidSelect.value === 'replace') {
-                existingEntryData.uids = [newData.uid];
-                existingEntryData.hardware_uids = [hardwareUid];
+                existingEntryData.uids = studentId ? [studentId] : [];
+                existingEntryData.hardware_uids = hwUid ? [hwUid] : [];
             }
         }
         showNotification('success', 'Entry Updated', `Updated details for ${existingEntryData.name}.`);
@@ -4673,6 +5071,11 @@ function showRegistrationDetailsDialog(data) {
 
     const formattedTimestamp = data.timestamp ? new Date(data.timestamp).toLocaleString() : 'N/A';
 
+    const rawUid = (data.uid || '').toString().trim();
+    const isHex = rawUid.includes(':') || /^[0-9A-Fa-f]{8}$/.test(rawUid);
+    const hexUid = isHex ? rawUid : (convertExternalIdToUid(rawUid) || rawUid);
+    const decId = isHex ? (convertUidToExternalId(rawUid) || rawUid) : rawUid;
+
     let actionsHtml = '';
     if (isReadOnly) {
         actionsHtml = `<button id="cancel-details-btn" class="btn-blue">Close</button>`;
@@ -4695,9 +5098,13 @@ function showRegistrationDetailsDialog(data) {
         <input class="form-control form-group-control" value="${escapeHtml(data.email)}" disabled>
     </div>
     <div class="form-group" style="align-items: flex-start;">
+        <label><i class="fa-solid fa-id-card"></i> ID:</label>
+        <input class="form-control form-group-control" value="${escapeHtml(decId)}" disabled>
+    </div>
+    <div class="form-group" style="align-items: flex-start;">
         <label><i class="fa-solid fa-wifi"></i> UID:</label>
         <div class="form-group-control dialog-time-pill-container" style="padding-top: 13px; padding-bottom: 13px;">
-            <span class="uid-badge" style="font-size: 1.1em; padding: 8px 10px;">${escapeHtml(data.uid)}</span>
+            <span class="uid-badge" style="font-size: 1.1em; padding: 8px 10px;">${escapeHtml(hexUid)}</span>
         </div>
     </div>
     <div class="form-group" style="align-items: flex-start;">
@@ -4784,20 +5191,24 @@ function showApproveDialog(registration) {
 
     // Iterate through the local database to find a match
     for (const [dbKey, studentData] of Object.entries(databaseMap)) {
-        const existingUids = studentData.uids.map(norm);
+        const existingUids = (studentData.uids || []).map(norm);
+        const existingHwUids = (studentData.hardware_uids || []).map(norm);
         const existingName = norm(studentData.name);
         const existingEmail = norm(studentData.email);
 
         const duplicateData = {
             index: dbKey,
             name: studentData.name,
-            uid: studentData.uids.join(', '),
+            uids: studentData.uids || [],
+            hardware_uids: studentData.hardware_uids || (studentData.uids ? studentData.uids.map(convertExternalIdToUid).filter(Boolean) : []),
+            uid: (studentData.uids || []).join(', '),
+            hardwareUid: (studentData.hardware_uids || (studentData.uids ? studentData.uids.map(convertExternalIdToUid).filter(Boolean) : [])).join(', '),
             email: studentData.email || '',
             rowIndex: parseInt(dbKey) + 1 // Approximate rowIndex for consistency
         };
 
-        // Priority 1: UID Match
-        if (existingUids.some(eu => uidsEquivalent(eu, newUid))) {
+        // Priority 1: UID / ID Match
+        if (existingUids.some(eu => uidsEquivalent(eu, newUid)) || existingHwUids.some(ehu => uidsEquivalent(ehu, newUid))) {
             match = { type: 'uid', duplicate: duplicateData };
             break;
         }
@@ -4836,6 +5247,11 @@ function showFinalApprovalDialog(registration) {
     dialog.setAttribute('role', 'dialog');
     dialog.setAttribute('aria-modal', 'true');
 
+    const rawUid = (registration.uid || '').toString().trim();
+    const isHex = rawUid.includes(':') || /^[0-9A-Fa-f]{8}$/.test(rawUid);
+    const hexUid = isHex ? rawUid : (convertExternalIdToUid(rawUid) || rawUid);
+    const decId = isHex ? (convertUidToExternalId(rawUid) || rawUid) : rawUid;
+
     dialog.innerHTML = `
     <h3 class="dialog-title">Approve Application</h3>
     <div class="dialog-content">
@@ -4852,8 +5268,13 @@ function showFinalApprovalDialog(registration) {
         </div>
 
         <div class="form-group">
+            <label class="dialog-label-fixed" for="approve-id"><i class="fa-solid fa-id-card"></i> ID</label>
+            <input type="text" id="approve-id" class="form-control" value="${escapeHtml(decId)}" disabled>
+        </div>
+
+        <div class="form-group">
             <label class="dialog-label-fixed" for="approve-uid"><i class="fa-solid fa-wifi"></i> UID</label>
-            <input type="text" id="approve-uid" class="form-control" value="${escapeHtml(registration.uid)}" disabled>
+            <input type="text" id="approve-uid" class="form-control" value="${escapeHtml(hexUid)}" disabled>
         </div>
         
     </div> 
@@ -4882,7 +5303,16 @@ function showFinalApprovalDialog(registration) {
         if (!isValid) return;
 
         confirmBtn.disabled = true; confirmBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Approving...';
-        const finalData = { action: 'approveRegistration', approvalMode: 'final_approve', name: finalName, uid: registration.uid, email: finalEmail, rowNumber: registration.rowNumber };
+        const finalData = {
+            action: 'approveRegistration',
+            approvalMode: 'final_approve',
+            name: finalName,
+            uid: decId,
+            hardwareUid: hexUid,
+            hardware_uid: hexUid,
+            email: finalEmail,
+            rowNumber: registration.rowNumber
+        };
         if (!currentCourse) return;
         callWebApp('approveRegistration', finalData, 'POST').then(result => {
             if (result && result.result === 'success') {
@@ -4906,27 +5336,59 @@ function showDuplicateWarningDialog(newData, duplicates) {
     dialog.setAttribute('role', 'dialog');
     dialog.setAttribute('aria-modal', 'true');
 
+    // --- Format Existing IDs and UIDs ---
+    let existingIdsList = [];
+    if (existing.uids && Array.isArray(existing.uids) && existing.uids.length > 0) {
+        existingIdsList = existing.uids;
+    } else if (existing.uid) {
+        existingIdsList = existing.uid.split(',').map(s => s.trim());
+    } else if (existing.hardware_uids && existing.hardware_uids.length > 0) {
+        existingIdsList = existing.hardware_uids.map(convertUidToExternalId).filter(Boolean);
+    }
+
+    let existingHwList = [];
+    if (existing.hardware_uids && Array.isArray(existing.hardware_uids) && existing.hardware_uids.length > 0) {
+        existingHwList = existing.hardware_uids;
+    } else if (existing.hardwareUid) {
+        existingHwList = existing.hardwareUid.split(',').map(s => s.trim());
+    } else if (existingIdsList.length > 0) {
+        existingHwList = existingIdsList.map(convertExternalIdToUid).filter(Boolean);
+    }
+
+    const existingIdsDisplay = existingIdsList.length > 0 ? existingIdsList.join(', ') : '—';
+    const existingHwDisplay = existingHwList.length > 0 ? existingHwList.join(', ') : '—';
+
+    // --- Format New Data ID and UID ---
+    const rawNewId = newData.uid ? String(newData.uid).trim() : '';
+    const rawNewHw = (newData.hardwareUid || newData.hardware_uid) ? String(newData.hardwareUid || newData.hardware_uid).trim() : '';
+
+    const newStudentId = (rawNewId && !rawNewId.includes(':'))
+        ? rawNewId
+        : (rawNewHw ? convertUidToExternalId(rawNewHw) : (rawNewId ? convertUidToExternalId(rawNewId) : '—'));
+
+    const newHardwareUid = (rawNewHw && rawNewHw.includes(':'))
+        ? rawNewHw
+        : (rawNewId ? (convertExternalIdToUid(rawNewId) || rawNewId) : (rawNewHw || '—'));
+
     // --- Core comparison logic ---
     const norm = (str) => (str || '').toString().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
     const isNameMatch = norm(newData.name) === norm(existing.name);
     const isEmailMatch = norm(newData.email) === norm(existing.email);
-    const existingUids = (existing.uid || '').toString().split(',').map(norm);
-    const isUidMatch = existingUids.includes(norm(newData.uid));
+    const isUidMatch = existingIdsList.map(norm).includes(norm(newStudentId)) || existingHwList.map(norm).includes(norm(newHardwareUid));
 
     // --- Dynamic HTML for checkboxes ---
-    // Note: We use flex-end justification to align actions to the right
     const nameActionHTML = isNameMatch ?
-        '<span style="opacity: 0.6; font-size: 0.9em; margin-top: 5px; text-align: right;">(Names match)</span>' :
-        `<div class="field-action" style="margin-top: 5px;"><input type="checkbox" id="replace-name-check" data-field="name"><label for="replace-name-check">Replace</label></div>`;
+        '<span style="opacity: 0.6; font-size: 0.85em; white-space: nowrap; min-width: 90px; text-align: right;">(Matches)</span>' :
+        `<div class="field-action" style="display:flex; align-items:center; gap:6px; white-space:nowrap; min-width:90px; justify-content:flex-end; margin:0;"><input type="checkbox" id="replace-name-check" data-field="name" style="cursor:pointer; margin:0;"><label for="replace-name-check" style="margin:0; cursor:pointer; font-weight:600; font-size:0.9em;">Replace</label></div>`;
 
     const emailActionHTML = isEmailMatch ?
-        '<span style="opacity: 0.6; font-size: 0.9em; margin-top: 5px; text-align: right;">(Emails match)</span>' :
-        `<div class="field-action" style="margin-top: 5px;"><input type="checkbox" id="replace-email-check" data-field="email"><label for="replace-email-check">Replace</label></div>`;
+        '<span style="opacity: 0.6; font-size: 0.85em; white-space: nowrap; min-width: 90px; text-align: right;">(Matches)</span>' :
+        `<div class="field-action" style="display:flex; align-items:center; gap:6px; white-space:nowrap; min-width:90px; justify-content:flex-end; margin:0;"><input type="checkbox" id="replace-email-check" data-field="email" style="cursor:pointer; margin:0;"><label for="replace-email-check" style="margin:0; cursor:pointer; font-weight:600; font-size:0.9em;">Replace</label></div>`;
 
     const uidActionHTML = isUidMatch ?
-        '<span style="opacity: 0.6; font-size: 0.9em; margin-top: 5px; text-align: right;">(UID exists)</span>' :
-        `<div class="field-action" style="margin-top: 5px;">
-            <select id="uid-action-select" class="form-control" style="padding: 4px 8px; font-size: 0.9em;">
+        '<span style="opacity: 0.6; font-size: 0.85em; white-space: nowrap; min-width: 120px; text-align: right;">(Exists)</span>' :
+        `<div class="field-action" style="white-space:nowrap; min-width:120px; margin:0;">
+            <select id="uid-action-select" class="form-control" style="padding:4px 8px; font-size:0.85em; height:34px;">
                 <option value="none" selected>Do Nothing</option>
                 <option value="merge">Merge</option>
                 <option value="replace">Replace</option>
@@ -4946,8 +5408,12 @@ function showDuplicateWarningDialog(newData, duplicates) {
                 <input class="form-control" value="${escapeHtml(existing.name)}" disabled style="background: transparent; border: none; padding: 5px; height: auto;">
             </div>
             <div class="form-group" style="margin-bottom: 8px;">
+                <label class="dialog-label-fixed"><i class="fa-solid fa-id-card"></i> ID(s)</label>
+                <input class="form-control" value="${escapeHtml(existingIdsDisplay)}" disabled style="background: transparent; border: none; padding: 5px; height: auto;">
+            </div>
+            <div class="form-group" style="margin-bottom: 8px;">
                 <label class="dialog-label-fixed"><i class="fa-solid fa-wifi"></i> UID(s)</label>
-                <input class="form-control" value="${escapeHtml(existing.uid)}" disabled style="background: transparent; border: none; padding: 5px; height: auto;">
+                <input class="form-control" value="${escapeHtml(existingHwDisplay)}" disabled style="background: transparent; border: none; padding: 5px; height: auto;">
             </div>
             <div class="form-group" style="margin-bottom: 0;">
                 <label class="dialog-label-fixed"><i class="fa-solid fa-at"></i> Email</label>
@@ -4959,28 +5425,27 @@ function showDuplicateWarningDialog(newData, duplicates) {
         
         <div style="font-weight: 700; margin-bottom: 10px; color: var(--text-color); font-size: 0.9em; text-transform: uppercase;">New Application</div>
         
-        <div class="form-group" style="align-items: flex-start;">
-            <label class="dialog-label-fixed" style="margin-top: 10px;"><i class="fa-solid fa-quote-left"></i> Name</label>
-            <div style="flex-grow: 1;">
-                <input class="form-control" value="${escapeHtml(newData.name)}" disabled>
-                ${nameActionHTML}
-            </div>
+        <div class="form-group" style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+            <label class="dialog-label-fixed"><i class="fa-solid fa-quote-left"></i> Name</label>
+            <input class="form-control" value="${escapeHtml(newData.name)}" disabled style="flex: 1;">
+            ${nameActionHTML}
         </div>
         
-        <div class="form-group" style="align-items: flex-start;">
-            <label class="dialog-label-fixed" style="margin-top: 10px;"><i class="fa-solid fa-at"></i> Email</label>
-            <div style="flex-grow: 1;">
-                <input class="form-control" value="${escapeHtml(newData.email)}" disabled>
-                ${emailActionHTML}
-            </div>
+        <div class="form-group" style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+            <label class="dialog-label-fixed"><i class="fa-solid fa-at"></i> Email</label>
+            <input class="form-control" value="${escapeHtml(newData.email)}" disabled style="flex: 1;">
+            ${emailActionHTML}
         </div>
         
-        <div class="form-group" style="align-items: flex-start;">
-            <label class="dialog-label-fixed" style="margin-top: 10px;"><i class="fa-solid fa-wifi"></i> UID</label>
-            <div style="flex-grow: 1;">
-                <input class="form-control" value="${escapeHtml(newData.uid)}" disabled>
-                ${uidActionHTML}
-            </div>
+        <div class="form-group" style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+            <label class="dialog-label-fixed"><i class="fa-solid fa-id-card"></i> ID</label>
+            <input class="form-control" value="${escapeHtml(newStudentId)}" disabled style="flex: 1;">
+            ${uidActionHTML}
+        </div>
+        <div class="form-group" style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+            <label class="dialog-label-fixed"><i class="fa-solid fa-wifi"></i> UID</label>
+            <input class="form-control" value="${escapeHtml(newHardwareUid)}" disabled style="flex: 1;">
+            <span style="min-width: 120px;"></span>
         </div>
 
     </div>
@@ -5025,7 +5490,9 @@ function showDuplicateWarningDialog(newData, duplicates) {
         const button = e.currentTarget;
         button.disabled = true;
         button.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Processing...`;
-        const payload = { ...newData, approvalMode: 'add_new_separate' };
+        const studentId = newStudentId !== '—' ? newStudentId : (newData.uid || '');
+        const hwUid = newHardwareUid !== '—' ? newHardwareUid : (newData.hardwareUid || '');
+        const payload = { ...newData, approvalMode: 'add_new_separate', uid: studentId, hardwareUid: hwUid, hardware_uid: hwUid };
         if (!currentCourse) return;
         callWebApp('approveRegistration', payload, 'POST').then(result => {
             if (result && result.result === 'success') {
@@ -5045,7 +5512,9 @@ function showDuplicateWarningDialog(newData, duplicates) {
         if (emailCheck && emailCheck.checked) updates.email = newData.email;
         if (uidSelect && uidSelect.value !== 'none') updates.uid_action = uidSelect.value;
 
-        const payload = { ...newData, action: 'approveRegistration', approvalMode: 'custom_replace', duplicateRowIndex: existing.rowIndex, updates: updates };
+        const studentId = newStudentId !== '—' ? newStudentId : (newData.uid || '');
+        const hwUid = newHardwareUid !== '—' ? newHardwareUid : (newData.hardwareUid || '');
+        const payload = { ...newData, action: 'approveRegistration', approvalMode: 'custom_replace', duplicateRowIndex: existing.rowIndex, updates: updates, uid: studentId, hardwareUid: hwUid, hardware_uid: hwUid };
         button.disabled = true; button.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Approving...`;
         callWebApp('approveRegistration', payload, 'POST').then(result => {
             if (result && result.result === 'success') {
@@ -5182,9 +5651,20 @@ function renderRegistrationsTable(registrations) {
 
         let formattedTimestamp = reg.timestamp ? new Date(reg.timestamp).toLocaleString() : 'N/A';
 
+        const rawUid = (reg.uid || '').toString().trim();
+        const isHex = rawUid.includes(':') || /^[0-9A-Fa-f]{8}$/.test(rawUid);
+        const hexUid = isHex ? rawUid : (convertExternalIdToUid(rawUid) || rawUid);
+        const decId = isHex ? (convertUidToExternalId(rawUid) || rawUid) : rawUid;
+        const uidCellDisplay = (hexUid && decId && hexUid !== decId)
+            ? `<div style="display:flex; flex-direction:column; gap:2px;">
+                 <span><span class="uid-badge">${escapeHtml(hexUid)}</span></span>
+                 <span style="font-size:0.85em; opacity:0.75; font-family:monospace;"><i class="fa-solid fa-id-card" style="font-size:0.85em; opacity:0.6; margin-right:3px;"></i>${escapeHtml(decId)}</span>
+               </div>`
+            : `<span class="uid-badge">${escapeHtml(hexUid || reg.uid || 'N/A')}</span>`;
+
         row.innerHTML = `
             <td>${escapeHtml(reg.name) || 'N/A'}</td>
-            <td><span class="uid-badge">${escapeHtml(reg.uid) || 'N/A'}</span></td>
+            <td>${uidCellDisplay}</td>
             <td style="font-size: 0.9em;">${escapeHtml(reg.email) || 'N/A'}</td>
             <td style="font-size: 0.9em;">${escapeHtml(formattedTimestamp)}</td>
             <td style="font-size: 0.9em;">${escapeHtml(reg.sentBy) || 'Unknown'}</td>
@@ -5441,17 +5921,56 @@ function showRequestPermissionDialog() {
     dialog.setAttribute('class', 'dialog');
     dialog.setAttribute('role', 'dialog');
 
-    const courseOptions = Object.keys(courseInfoMap).sort()
-        .filter(courseName => !courseInfoMap[courseName]?.archived)
-        .map(courseName =>
-            `<option value="${escapeHtml(courseName)}">${courseName.replace(/_/g, ' ')}</option>`
-        ).join('');
+    // 1. Find all student identifiers
+    let studentUIDs = [];
+    if (currentUser && currentUser.email) {
+        for (const dbKey in databaseMap) {
+            const entry = databaseMap[dbKey];
+            if (entry.email && entry.email.toLowerCase() === currentUser.email.toLowerCase()) {
+                studentUIDs = (entry.uids || []).concat(entry.hardware_uids || []);
+                break;
+            }
+        }
+    }
+    const norm = (str) => (str || '').toString().toLowerCase().trim();
+    const normalizedUIDs = studentUIDs.map(norm);
+    const userEmailNorm = norm(currentUser.email);
+    const userNameNorm = norm(currentUser.name);
+
+    // 2. Filter active (non-archived) courses where student has at least 1 entry
+    const allActiveCourses = Object.keys(courseInfoMap).sort()
+        .filter(courseName => !courseInfoMap[courseName]?.archived);
+
+    const enrolledCourses = allActiveCourses.filter(courseName => {
+        const logs = (courseData[courseName]?.logs || studentLogCache[courseName] || []);
+        if (logs.length === 0) return false;
+        return logs.some(log => {
+            const logUidNorm = norm(log.uid);
+            const logEmailNorm = norm(log.email);
+            const logNameNorm = norm(log.name);
+            return (
+                (logUidNorm && normalizedUIDs.includes(logUidNorm)) ||
+                (logEmailNorm && logEmailNorm === userEmailNorm) ||
+                (logNameNorm && logNameNorm === userNameNorm) ||
+                (normalizedUIDs.length === 0 && !logEmailNorm && logs.length > 0)
+            );
+        });
+    });
+
+    const isEnrolledEmpty = enrolledCourses.length === 0;
+    const courseOptions = isEnrolledEmpty
+        ? '<option value="" disabled selected>No enrolled courses available</option>'
+        : '<option value="" disabled selected>Select Course...</option>' + enrolledCourses.map(courseName => {
+            const cleanName = getCleanCourseCode(courseName, courseInfoMap[courseName]?.eisId);
+            return `<option value="${escapeHtml(courseName)}">${escapeHtml(cleanName)}</option>`;
+        }).join('');
+
+    const emptyCourseExplanation = isEnrolledEmpty
+        ? `<small id="no-enrolled-courses-msg" style="color:var(--text-muted, #777); font-size:0.8em; display:block; margin-top:4px;"><i class="fa-solid fa-circle-info"></i> No enrolled courses found with your attendance records yet.</small>`
+        : '';
 
     const hoursList = ['8:40–9:30', '9:40–10:30', '10:40–11:30', '11:40–12:30', '12:40–13:30', '13:40–14:30', '14:40–15:30', '15:40–16:30', '16:00–16:50', '17:00–17:50', '18:00–18:50', '19:00–19:50'];
     const hourButtons = hoursList.map(h => `<button type="button" class="toggle-button" data-value="${h}" style="font-family:'Google Sans Flex', sans-serif; overflow:visible; text-overflow:clip; font-size:0.8em; padding:10px 2px;">${h}</button>`).join('');
-
-
-
 
     dialog.innerHTML = `
 <h3 class="dialog-title"><i class="fa-solid fa-hand-point-up"></i> Request for Permission</h3>
@@ -5465,10 +5984,12 @@ function showRequestPermissionDialog() {
     
     <div class="form-group required">
         <label class="dialog-label-fixed"><i class="fa-solid fa-book"></i> Course</label>
-        <select id="request-course" class="form-control form-group-control">
-            <option value="" disabled selected>Select Course...</option>
-            ${courseOptions}
-        </select>
+        <div class="form-group-control">
+            <select id="request-course" class="form-control" ${isEnrolledEmpty ? 'disabled' : ''}>
+                ${courseOptions}
+            </select>
+            ${emptyCourseExplanation}
+        </div>
     </div>
 
     <div id="request-session-container" style="display:none; margin-bottom:15px;">
@@ -6392,11 +6913,12 @@ function sbMapCourseInfo(rows) {
 function sbMapDatabase(rows) {
     const database = {};
     (rows || []).forEach(row => {
-        if (row.id && row.uids && row.uids.length > 0) {
+        if (row.id) {
             database[row.id] = {
                 name: row.name || '',
                 email: row.email || '',
-                uids: row.uids
+                uids: Array.isArray(row.uids) ? row.uids : (row.uids ? [row.uids] : []),
+                hardware_uids: Array.isArray(row.hardware_uids) ? row.hardware_uids : (row.hardware_uids ? [row.hardware_uids] : [])
             };
         }
     });
@@ -6414,8 +6936,48 @@ async function sbGetCourseInfo() {
 }
 
 async function sbGetDatabase() {
-    const rows = sbUnwrap(await supabaseClient.from('students').select('id,name,email,uids'));
-    return sbMapDatabase(rows);
+    const studentRes = await supabaseClient.from('students').select('id,name,email,uids,hardware_uids');
+    const studentRows = sbUnwrap(studentRes) || [];
+
+    let staffRows = [];
+    try {
+        const staffRes = await supabaseClient.from('staff').select('name,email,uid,role');
+        staffRows = staffRes.data || [];
+    } catch (e) {
+        console.warn('Staff fetch skipped or failed:', e);
+    }
+
+    const mapped = sbMapDatabase(studentRows);
+
+    // Merge staff members into databaseMap so scanned staff cards resolve their name!
+    (staffRows || []).forEach(s => {
+        if (!s || !s.name || !s.uid) return;
+        const key = s.name.toLowerCase().trim();
+        const rawUid = String(s.uid).trim();
+        const convId = convertUidToExternalId(rawUid);
+        const cardUids = [rawUid];
+        const studentIds = convId ? [convId] : [rawUid];
+
+        if (!mapped[key]) {
+            mapped[key] = {
+                name: s.name,
+                email: s.email || '',
+                uids: studentIds,
+                hardware_uids: cardUids,
+                role: s.role || 'Staff',
+                isStaff: true
+            };
+        } else {
+            studentIds.forEach(u => {
+                if (!mapped[key].uids.includes(u)) mapped[key].uids.push(u);
+            });
+            cardUids.forEach(u => {
+                if (!mapped[key].hardware_uids.includes(u)) mapped[key].hardware_uids.push(u);
+            });
+        }
+    });
+
+    return mapped;
 }
 
 async function sbGetMyUids() {
@@ -6423,7 +6985,17 @@ async function sbGetMyUids() {
     const rows = sbUnwrap(await supabaseClient.from('students')
         .select('uids').ilike('email', email));
     const uids = [];
-    (rows || []).forEach(r => { if (r.uids) uids.push(...r.uids); });
+    (rows || []).forEach(r => {
+        if (r.uids) {
+            r.uids.forEach(u => {
+                const s = String(u).trim();
+                if (!s) return;
+                uids.push(s);
+                const conv = convertUidToExternalId(s);
+                if (conv && conv !== s) uids.push(conv);
+            });
+        }
+    });
     return [...new Set(uids)];
 }
 
@@ -6652,11 +7224,16 @@ async function callSupabase(action, payload = {}) {
         }
 
         case 'addEntryToDatabase_Admin': {
-            sbUnwrap(await supabaseClient.from('students').insert({
+            const studentInsert = {
                 name: payload.name,
                 email: payload.email || '',
-                uids: payload.uid ? [payload.uid.trim()] : []
-            }));
+                uids: payload.uids ? (Array.isArray(payload.uids) ? payload.uids : [payload.uids]) : (payload.uid ? [payload.uid.trim()] : [])
+            };
+            if (payload.hardware_uids || payload.hardwareUid || payload.hardwareUids) {
+                const hw = payload.hardware_uids || payload.hardwareUids || (payload.hardwareUid ? [payload.hardwareUid] : []);
+                studentInsert.hardware_uids = Array.isArray(hw) ? hw : [hw];
+            }
+            sbUnwrap(await supabaseClient.from('students').insert(studentInsert));
             return { result: 'success', message: 'Entry added directly to database' };
         }
 
@@ -6668,6 +7245,12 @@ async function callSupabase(action, payload = {}) {
                 patch.uids = Array.isArray(payload.uids)
                     ? payload.uids
                     : payload.uids.toString().split(',').map(u => u.trim()).filter(Boolean);
+            }
+            if (payload.hardware_uids !== undefined || payload.hardwareUids !== undefined) {
+                const hw = payload.hardware_uids || payload.hardwareUids;
+                patch.hardware_uids = Array.isArray(hw)
+                    ? hw
+                    : hw.toString().split(',').map(u => u.trim()).filter(Boolean);
             }
             sbUnwrap(await supabaseClient.from('students').update(patch)
                 .eq('id', parseInt(payload.dbKey)));
@@ -6851,9 +7434,17 @@ async function callSupabase(action, payload = {}) {
         }
 
         case 'approveRegistration': {
+            const studentId = (payload.uid && !payload.uid.includes(':'))
+                ? payload.uid.trim()
+                : (payload.hardwareUid ? convertUidToExternalId(payload.hardwareUid) : (payload.uid ? convertUidToExternalId(payload.uid) : ''));
+
+            const hardwareUid = (payload.hardwareUid && payload.hardwareUid.includes(':'))
+                ? payload.hardwareUid.trim()
+                : (payload.uid ? (convertExternalIdToUid(payload.uid) || payload.uid.trim()) : (payload.hardwareUid || ''));
+
             if (payload.approvalMode === 'custom_replace') {
                 const existing = sbUnwrap(await supabaseClient.from('students')
-                    .select('id,uids').eq('id', parseInt(payload.duplicateRowIndex)));
+                    .select('id,uids,hardware_uids').eq('id', parseInt(payload.duplicateRowIndex)));
                 if (!existing || existing.length === 0) throw new Error('Could not find existing student to update.');
 
                 const student = existing[0];
@@ -6863,11 +7454,15 @@ async function callSupabase(action, payload = {}) {
                 if (updates.email) patch.email = payload.email;
                 if (updates.uid_action) {
                     let uids = student.uids || [];
+                    let hwUids = student.hardware_uids || [];
                     if (updates.uid_action === 'merge') {
-                        if (!uids.includes(payload.uid.trim())) uids = [...uids, payload.uid.trim()];
+                        if (studentId && !uids.includes(studentId)) uids = [...uids, studentId];
+                        if (hardwareUid && !hwUids.includes(hardwareUid)) hwUids = [...hwUids, hardwareUid];
                         patch.uids = uids;
+                        patch.hardware_uids = hwUids;
                     } else if (updates.uid_action === 'replace') {
-                        patch.uids = [payload.uid.trim()];
+                        patch.uids = studentId ? [studentId] : [];
+                        patch.hardware_uids = hardwareUid ? [hardwareUid] : [];
                     }
                 }
                 if (Object.keys(patch).length > 0) {
@@ -6877,7 +7472,8 @@ async function callSupabase(action, payload = {}) {
                 sbUnwrap(await supabaseClient.from('students').insert({
                     name: payload.name,
                     email: payload.email,
-                    uids: payload.uid ? [payload.uid.trim()] : []
+                    uids: studentId ? [studentId] : [],
+                    hardware_uids: hardwareUid ? [hardwareUid] : []
                 }));
             }
 
@@ -6977,7 +7573,8 @@ function startNfcForInputDialog(inputElement, statusContainer, scanButton) {
     reader.scan({ signal: nfcController.signal }).then(() => {
         reader.onreading = ({ serialNumber }) => {
             inputElement.dataset.hardwareUid = serialNumber;
-            inputElement.value = convertUidToExternalId(serialNumber);
+            inputElement.value = serialNumber;
+            inputElement.dispatchEvent(new Event('input', { bubbles: true }));
             playSound(true);
             statusContainer.innerHTML = `<div class="sync-status success" style="justify-content: center; padding: 15px 0; font-size: 1em;"><i class="fa-solid fa-circle-check"></i> <span>Card Scanned!</span></div>`;
 
@@ -7320,9 +7917,20 @@ function updateAuthUI() {
 
     // --- Signed In State ---
     if (isSignedIn) {
+        if (!userName) userName = document.getElementById('user-name');
+        if (!userAvatar) userAvatar = document.getElementById('user-avatar');
+
         if (currentUser) {
-            userName.textContent = currentUser.name;
-            userAvatar.src = currentUser.picture;
+            if (userName) userName.textContent = currentUser.name;
+            const fallbackAvatar = getAvatarFallbackUrl(currentUser.name);
+            if (userAvatar) {
+                userAvatar.referrerPolicy = 'no-referrer';
+                userAvatar.onerror = () => {
+                    userAvatar.onerror = null;
+                    userAvatar.src = fallbackAvatar;
+                };
+                userAvatar.src = currentUser.picture || fallbackAvatar;
+            }
         }
 
         let chip = document.getElementById('student-profile-chip');
@@ -7332,15 +7940,26 @@ function updateAuthUI() {
             chip.setAttribute('class', 'student-profile-chip');
             if (userInfo && logoutBtn) userInfo.insertBefore(chip, logoutBtn);
             else if (userInfo) userInfo.appendChild(chip);
-            chip.appendChild(userAvatar);
-            chip.appendChild(userName);
+            if (userAvatar) chip.appendChild(userAvatar);
+            if (userName) chip.appendChild(userName);
         }
 
         const newChip = chip.cloneNode(true);
         chip.parentNode.replaceChild(newChip, chip);
         chip = newChip;
-        const newAvatar = chip.querySelector('.user-avatar');
-        if (newAvatar) userAvatar = newAvatar;
+        const newAvatar = chip.querySelector('.user-avatar') || chip.querySelector('#user-avatar');
+        if (newAvatar) {
+            userAvatar = newAvatar;
+            userAvatar.referrerPolicy = 'no-referrer';
+            userAvatar.onerror = () => {
+                userAvatar.onerror = null;
+                userAvatar.src = getAvatarFallbackUrl(currentUser?.name);
+            };
+        }
+        const newUserName = chip.querySelector('#user-name') || chip.querySelector('.user-name');
+        if (newUserName) {
+            userName = newUserName;
+        }
 
         chip.addEventListener('click', () => {
             if (isGlobalAdmin) showGlobalSettingsDialog();
@@ -7348,9 +7967,11 @@ function updateAuthUI() {
             else showStudentProfileDialog();
         });
 
-        userName.style.color = 'inherit';
-        userName.style.textDecoration = 'none';
-        userName.classList.remove('student-name-clickable');
+        if (userName) {
+            userName.style.color = 'inherit';
+            userName.style.textDecoration = 'none';
+            userName.classList.remove('student-name-clickable');
+        }
 
         if (isAdmin) {
             document.body.classList.add('is-admin');
@@ -8265,11 +8886,16 @@ function showAddEntryDialog() {
             </div>
 
             <div class="form-group">
-                <label class="dialog-label-fixed"><i class="fa-solid fa-wifi"></i> UID*</label>
-                <div class="admin-input-wrapper">
-                    <input type="text" id="add-uid" class="form-control" placeholder="AB:CD:12:34">
-                    ${nfcSupported ? '<button class="btn-blue btn-icon btn-sm scan-uid-btn" title="Scan UID"><i class="fa-solid fa-wifi"></i></button>' : ''}
+                <label class="dialog-label-fixed" for="add-hardware-uid"><i class="fa-solid fa-wifi"></i> UID</label>
+                <div class="admin-input-wrapper" style="margin:0; width:100%;">
+                    <input type="text" id="add-hardware-uid" class="form-control" placeholder="04:a2:3f:8a">
+                    ${nfcSupported ? '<button class="btn-blue btn-icon btn-sm scan-uid-btn" title="Scan UID" style="border-radius:6px;"><i class="fa-solid fa-wifi"></i></button>' : ''}
                 </div>
+            </div>
+
+            <div class="form-group">
+                <label class="dialog-label-fixed" for="add-student-id"><i class="fa-solid fa-id-card"></i> ID</label>
+                <input type="text" id="add-student-id" class="form-control" placeholder="Auto-calculated from UID" disabled style="opacity:0.75; cursor:not-allowed; background:rgba(0,0,0,0.04);">
             </div>
             
             <div id="nfc-status-container" style="margin-top:10px;"></div>
@@ -8283,7 +8909,6 @@ function showAddEntryDialog() {
     document.body.appendChild(dialogBackdrop);
 
     const close = () => {
-        // Ensure any active scan is stopped when the dialog closes
         if (activeNfcSession.controller) activeNfcSession.controller.abort();
         if (document.body.contains(dialogBackdrop)) {
             document.body.removeChild(dialogBackdrop);
@@ -8291,29 +8916,34 @@ function showAddEntryDialog() {
         closeDialogMode();
     };
 
-    const uidInput = dialog.querySelector('#add-uid');
+    const hwInput = dialog.querySelector('#add-hardware-uid');
+    const idInput = dialog.querySelector('#add-student-id');
     const nfcStatusContainer = dialog.querySelector('#nfc-status-container');
     const scanBtn = dialog.querySelector('.scan-uid-btn');
 
+    // Real-time calculation from UID to ID
+    if (hwInput && idInput) {
+        hwInput.addEventListener('input', () => {
+            const raw = hwInput.value.trim();
+            idInput.value = convertUidToExternalId(raw) || '';
+        });
+    }
+
     if (scanBtn) {
         scanBtn.addEventListener('click', () => {
-            // Check if the clicked button is already the active one
             if (activeNfcSession.button === scanBtn) {
-                // If so, treat it as a "stop" button
                 if (activeNfcSession.controller) activeNfcSession.controller.abort();
                 activeNfcSession = { controller: null, button: null };
                 scanBtn.innerHTML = '<i class="fa-solid fa-wifi"></i>';
                 nfcStatusContainer.innerHTML = '';
                 nfcStatusContainer.style.minHeight = '0';
             } else {
-                // If another scan is active, stop it first.
                 if (activeNfcSession.controller) {
                     activeNfcSession.controller.abort();
                     activeNfcSession.button.innerHTML = '<i class="fa-solid fa-wifi"></i>';
                 }
-                // Start a new scan for this button
-                scanBtn.innerHTML = '<i class="fa-solid fa-xmark"></i>'; // Show a 'stop' icon
-                const controller = startNfcForInputDialog(uidInput, nfcStatusContainer, scanBtn);
+                scanBtn.innerHTML = '<i class="fa-solid fa-xmark"></i>';
+                const controller = startNfcForInputDialog(hwInput, nfcStatusContainer, scanBtn);
                 activeNfcSession = { controller, button: scanBtn };
             }
         });
@@ -8325,21 +8955,23 @@ function showAddEntryDialog() {
     document.getElementById('confirm-add-btn').addEventListener('click', async () => {
         const nameInput = document.getElementById('add-name');
         const emailInput = document.getElementById('add-email');
-        const uidInput = document.getElementById('add-uid');
 
         // --- Validation ---
         clearInputError(nameInput);
         clearInputError(emailInput);
-        clearInputError(uidInput);
+        clearInputError(idInput);
+        clearInputError(hwInput);
         const name = nameInput.value.trim();
         const email = emailInput.value.trim();
-        const rawUid = uidInput.value.trim();
-        const uid = convertUidToExternalId(rawUid);
-        const hardwareUid = uidInput.dataset.hardwareUid || rawUid;
+        const rawHw = hwInput.value.trim();
+        const rawId = idInput.value.trim();
+        const uid = rawId || convertUidToExternalId(rawHw) || rawHw;
+        const hardwareUid = rawHw || convertExternalIdToUid(rawId) || rawId;
+
         let isValid = true;
         if (name === '') { showInputError(nameInput, 'Name is required.'); isValid = false; }
         if (!isValidEmail(email)) { showInputError(emailInput, 'A valid email is required.'); isValid = false; }
-        if (uid === '') { showInputError(uidInput, 'UID is required.'); isValid = false; }
+        if (!uid && !hardwareUid) { showInputError(idInput, 'UID or ID is required.'); isValid = false; }
         if (!isValid) return;
 
         const submissionData = {
@@ -8440,7 +9072,7 @@ function editDatabaseEntry(dbKey) {
         <div id="uid-list-container"></div>
         
         <div style="display: flex; justify-content: flex-end; margin-top: 15px;">
-             <button id="add-new-uid-row-btn" class="btn-blue btn-sm"><i class="fa-solid fa-plus"></i> Add UID</button>
+             <button id="add-new-uid-row-btn" class="btn-blue btn-sm"><i class="fa-solid fa-plus"></i> Add UID / ID</button>
         </div>
         <div id="nfc-status-container" style="margin-top:10px;"></div>
     </div> 
@@ -8455,59 +9087,79 @@ function editDatabaseEntry(dbKey) {
     const uidListContainer = dialog.querySelector('#uid-list-container');
     const nfcStatusContainer = dialog.querySelector('#nfc-status-container');
 
-    const createUidRow = (uidValue = '', hardwareUidValue = '') => {
+    const createUidRow = (idVal = '', hwVal = '') => {
         const uidGroup = document.createElement('div');
-        uidGroup.setAttribute('class', 'form-group uid-edit-row');
-        uidGroup.style.marginBottom = '15px'; // Increased margin
+        uidGroup.setAttribute('class', 'uid-edit-row');
+        uidGroup.style.cssText = 'margin-bottom:12px; background:rgba(0,0,0,0.02); padding:10px 12px; border-radius:8px; border:1px solid rgba(0,0,0,0.06);';
+        
+        const initHw = hwVal || convertExternalIdToUid(idVal);
+        const initId = idVal || convertUidToExternalId(hwVal);
+
         uidGroup.innerHTML = `
-    <label class="dialog-label-fixed"><i class="fa-solid fa-wifi"></i> UID</label>
-    <input type="text" class="form-control uid-input" value="${escapeHtml(uidValue)}" placeholder="AB:CD:12:34">
-    <div class="uid-button-group"> ${nfcSupported ? '<button class="btn-blue btn-icon btn-sm scan-uid-btn" title="Scan UID"><i class="fa-solid fa-wifi"></i></button>' : ''}
-        <button class="btn-red btn-icon btn-sm remove-uid-btn" title="Remove UID"><i class="fa-solid fa-minus"></i></button>
-    </div> `;
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                <span style="font-weight:600; font-size:0.85em; opacity:0.8;"><i class="fa-solid fa-id-card"></i> UID & ID Pair</span>
+                <button type="button" class="btn-red btn-sm remove-uid-btn" title="Remove" style="padding:3px 8px; border-radius:4px; font-size:0.8em; display:inline-flex; align-items:center; gap:4px; height:auto;"><i class="fa-solid fa-trash-can"></i> Remove</button>
+            </div>
+            <div class="form-group" style="margin-bottom:8px;">
+                <label class="dialog-label-fixed" style="width:90px; min-width:90px;"><i class="fa-solid fa-wifi"></i> UID</label>
+                <div style="flex-grow:1; display:flex; gap:6px;">
+                    <input type="text" class="form-control hw-uid-input" value="${escapeHtml(initHw)}" placeholder="04:a2:3f:8a">
+                    ${nfcSupported ? '<button class="btn-blue btn-icon btn-sm scan-uid-btn" title="Scan UID" style="border-radius:6px;"><i class="fa-solid fa-wifi"></i></button>' : ''}
+                </div>
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+                <label class="dialog-label-fixed" style="width:90px; min-width:90px;"><i class="fa-solid fa-id-card"></i> ID</label>
+                <input type="text" class="form-control student-id-input" value="${escapeHtml(initId)}" placeholder="Auto-calculated from UID" disabled style="opacity:0.75; cursor:not-allowed; background:rgba(0,0,0,0.04);">
+            </div>`;
         uidListContainer.appendChild(uidGroup);
 
-        const uidInputEl = uidGroup.querySelector('.uid-input');
-        if (hardwareUidValue) uidInputEl.dataset.hardwareUid = hardwareUidValue;
-        uidInputEl.addEventListener('input', () => { delete uidInputEl.dataset.hardwareUid; });
+        const hwInputEl = uidGroup.querySelector('.hw-uid-input');
+        const idInputEl = uidGroup.querySelector('.student-id-input');
+
+        // Real-time calculation from UID to ID
+        hwInputEl.addEventListener('input', () => {
+            const raw = hwInputEl.value.trim();
+            idInputEl.value = convertUidToExternalId(raw) || '';
+        });
 
         uidGroup.querySelector('.remove-uid-btn').addEventListener('click', () => {
-            if (uidListContainer.querySelectorAll('.form-group').length > 1) {
+            if (uidListContainer.querySelectorAll('.uid-edit-row').length > 1) {
                 uidGroup.remove();
             } else {
-                showNotification('warning', 'Cannot Remove', 'At least one UID field is required.');
+                showNotification('warning', 'Cannot Remove', 'At least one Card/ID pair is required.');
             }
         });
 
         const scanBtn = uidGroup.querySelector('.scan-uid-btn');
         if (scanBtn) {
             scanBtn.addEventListener('click', () => {
-                const inputTarget = uidGroup.querySelector('.uid-input');
-
                 if (activeNfcSession.button === scanBtn) {
-                    // If clicking the already active button, stop the scan.
                     if (activeNfcSession.controller) activeNfcSession.controller.abort();
                     activeNfcSession = { controller: null, button: null };
                     scanBtn.innerHTML = '<i class="fa-solid fa-wifi"></i>';
                     nfcStatusContainer.innerHTML = '';
                     nfcStatusContainer.style.minHeight = '0';
                 } else {
-                    // If another scan is active, stop it first.
                     if (activeNfcSession.controller) {
                         activeNfcSession.controller.abort();
                         activeNfcSession.button.innerHTML = '<i class="fa-solid fa-wifi"></i>';
                     }
-                    // Start a new scan.
-                    scanBtn.innerHTML = '<i class="fa-solid fa-xmark"></i>'; // Show a 'stop' icon
-                    const controller = startNfcForInputDialog(inputTarget, nfcStatusContainer, scanBtn);
+                    scanBtn.innerHTML = '<i class="fa-solid fa-xmark"></i>';
+                    const controller = startNfcForInputDialog(hwInputEl, nfcStatusContainer, scanBtn);
                     activeNfcSession = { controller, button: scanBtn };
                 }
             });
         }
     };
 
-    entry.uids.forEach((uid, i) => createUidRow(uid, (entry.hardware_uids || [])[i] || ''));
-    if (entry.uids.length === 0) createUidRow();
+    const count = Math.max((entry.uids || []).length, (entry.hardware_uids || []).length);
+    if (count === 0) {
+        createUidRow('', '');
+    } else {
+        for (let i = 0; i < count; i++) {
+            createUidRow((entry.uids || [])[i] || '', (entry.hardware_uids || [])[i] || '');
+        }
+    }
 
     dialog.querySelector('#add-new-uid-row-btn').addEventListener('click', () => createUidRow());
 
@@ -8517,41 +9169,46 @@ function editDatabaseEntry(dbKey) {
         closeDialogMode();
     };
 
-    // 1. Fixed ID: cancel-request-btn
     document.getElementById('cancel-request-btn').addEventListener('click', closeDialog);
 
-    // 2. Fixed ID: submit-request-btn
     document.getElementById('submit-request-btn').addEventListener('click', async () => {
         const nameInput = document.getElementById('edit-name');
         const emailInput = document.getElementById('edit-email');
-        const uidInputs = Array.from(dialog.querySelectorAll('.uid-input'));
+        const rows = Array.from(dialog.querySelectorAll('.uid-edit-row'));
 
-        // --- Validation ---
         clearInputError(nameInput);
         clearInputError(emailInput);
-        uidInputs.forEach(clearInputError);
         const newName = nameInput.value.trim();
         const newEmail = emailInput.value.trim();
         let isValid = true;
         if (newName === '') { showInputError(nameInput, 'Name is required.'); isValid = false; }
         if (!isValidEmail(newEmail)) { showInputError(emailInput, 'A valid email is required.'); isValid = false; }
-        const updatedUids = uidInputs.map(input => convertUidToExternalId(input.value.trim()));
-        const updatedHardwareUids = uidInputs.map(input => input.dataset.hardwareUid || input.value.trim());
-        if (updatedUids.some(uid => uid === '')) {
-            showInputError(uidInputs.find(input => input.value.trim() === ''), 'UID fields cannot be empty.');
-            isValid = false;
-        }
-        if (!isValid) return;
 
-        // Keep uids/hardware_uids as parallel arrays
         const finalUids = [];
         const finalHardwareUids = [];
-        updatedUids.forEach((uid, i) => {
-            if (uid) {
-                finalUids.push(uid);
-                finalHardwareUids.push(updatedHardwareUids[i]);
+
+        rows.forEach(row => {
+            const hwEl = row.querySelector('.hw-uid-input');
+            const idEl = row.querySelector('.student-id-input');
+            clearInputError(hwEl);
+            clearInputError(idEl);
+
+            const rawHw = hwEl.value.trim();
+            const rawId = idEl.value.trim();
+
+            const studentId = rawId || convertUidToExternalId(rawHw);
+            const hardwareUid = rawHw || convertExternalIdToUid(rawId);
+
+            if (!studentId && !hardwareUid) {
+                showInputError(idEl, 'At least one ID or UID is required.');
+                isValid = false;
+            } else {
+                if (studentId) finalUids.push(studentId);
+                if (hardwareUid) finalHardwareUids.push(hardwareUid);
             }
         });
+
+        if (!isValid) return;
 
         // 1. Update local map
         databaseMap[dbKey] = { name: newName, email: newEmail, uids: finalUids, hardware_uids: finalHardwareUids };
@@ -8761,54 +9418,51 @@ function showPromptDialog({ title, message, initialValue = '', confirmText = 'Co
 * @param {object} options - The options for the dialog.
 * @param {boolean} [options.isDestructive=false] - If true, the confirm button will be red.
 */
-function showConfirmationDialog({ title, message, confirmText = 'Confirm', cancelText = 'Cancel', onConfirm, isDestructive = false }) {
+function showConfirmationDialog({ title, message, confirmText = 'Confirm', cancelText = 'Cancel', onConfirm, onCancel, isDestructive = false }) {
     openDialogMode();
-    const existingDialog = document.querySelector('.dialog-backdrop');
-    if (existingDialog) existingDialog.remove();
 
     const confirmBtnClass = isDestructive ? 'btn-red' : 'btn-green';
     const cancelBtnClass = 'btn-blue';
 
     const dialogBackdrop = document.createElement('div');
-    dialogBackdrop.setAttribute('class', 'dialog-backdrop');
+    dialogBackdrop.setAttribute('class', 'dialog-backdrop confirmation-backdrop');
+    dialogBackdrop.style.zIndex = '10050';
 
     const dialog = document.createElement('div');
-    dialog.setAttribute('class', 'dialog');
+    dialog.setAttribute('class', 'dialog confirmation-dialog');
     dialog.setAttribute('role', 'dialog');
     dialog.setAttribute('aria-modal', 'true');
     dialog.innerHTML = `
-                <h3 class="dialog-title">${title}</h3>
-                <div class="dialog-content"><p>${message}</p>
-                </div><div class="dialog-actions">
-                    <button id="dialog-cancel-btn" class="${cancelBtnClass}">${cancelText}</button>
-                    <button id="dialog-confirm-btn" class="${confirmBtnClass}">${confirmText}</button>
-                </div>`;
+        <h3 class="dialog-title">${title}</h3>
+        <div class="dialog-content"><p>${message}</p></div>
+        <div class="dialog-actions">
+            <button id="dialog-cancel-btn" class="${cancelBtnClass}">${cancelText}</button>
+            <button id="dialog-confirm-btn" class="${confirmBtnClass}">${confirmText}</button>
+        </div>`;
 
     dialogBackdrop.appendChild(dialog);
     document.body.appendChild(dialogBackdrop);
 
-    const confirmBtn = document.getElementById('dialog-confirm-btn');
-    const cancelBtn = document.getElementById('dialog-cancel-btn');
-
-    const closeDialog = () => {
-        // This line assumes 'dialogBackdrop' is available in the function's scope.
+    const confirmBtn = dialog.querySelector('#dialog-confirm-btn');
+    const closeConfirmDialog = () => {
         if (document.body.contains(dialogBackdrop)) {
             document.body.removeChild(dialogBackdrop);
         }
-        closeDialogMode(); // Restore background scrolling
+        closeDialogMode();
     };
 
-    confirmBtn.addEventListener('click', () => {
-        // This is the key: Run the action, THEN close the dialog.
-        onConfirm();
-        closeDialog();
+    confirmBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        closeConfirmDialog();
+        if (typeof onConfirm === 'function') onConfirm();
+        closeDialogMode();
     });
 
-    cancelBtn.addEventListener('click', closeDialog);
-    dialogBackdrop.addEventListener('click', (e) => {
-        if (e.target === dialogBackdrop) {
-            closeDialog();
-        }
+    cancelBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        closeConfirmDialog();
+        if (typeof onCancel === 'function') onCancel();
+        closeDialogMode();
     });
 }
 
@@ -8862,15 +9516,31 @@ function showAddLogEntryDialog() {
     // Prepare Session Toggles
     const sessionHtml = renderSessionSelectorHTML('manual', false, true);
 
-    // Prepare student list
+    // Prepare student list (1 unique entry per student in databaseMap)
     const studentList = [];
     Object.entries(databaseMap).forEach(([dbKey, data]) => {
-        data.uids.forEach(uid => {
-            studentList.push({
-                name: data.name,
-                uid: uid,
-                initials: data.name.substring(0, 2).toUpperCase()
-            });
+        const primaryUid = (data.uids && data.uids.length > 0)
+            ? data.uids[0]
+            : (data.hardware_uids && data.hardware_uids.length > 0
+                ? (convertUidToExternalId(data.hardware_uids[0]) || data.hardware_uids[0])
+                : '');
+
+        // Collect all searchable IDs and UIDs for this student
+        const allUids = [...(data.uids || []), ...(data.hardware_uids || [])];
+
+        // Readable subtitle with ID and UID (Global Admin only)
+        const idParts = (data.uids && data.uids.length > 0) ? `ID: ${data.uids.join(', ')}` : '';
+        const hwParts = (data.hardware_uids && data.hardware_uids.length > 0) ? `UID: ${data.hardware_uids.join(', ')}` : '';
+        const subtitle = isGlobalAdmin
+            ? [idParts, hwParts].filter(Boolean).join(' • ')
+            : (data.email || '');
+
+        studentList.push({
+            name: data.name || 'Unknown',
+            primaryUid: primaryUid,
+            allUids: allUids,
+            subtitle: subtitle,
+            initials: (data.name || 'UN').substring(0, 2).toUpperCase()
         });
     });
     studentList.sort((a, b) => a.name.localeCompare(b.name));
@@ -8881,10 +9551,10 @@ function showAddLogEntryDialog() {
         
         <div class="form-group" style="margin-bottom:0;">
             <label class="dialog-label-fixed"><i class="fa-solid fa-search"></i> Search</label>
-            <input type="text" id="manual-name-search" class="form-control" placeholder="Type name or UID..." autocomplete="off">
+            <input type="text" id="manual-name-search" class="form-control" placeholder="${isGlobalAdmin ? 'Type name, ID, or UID...' : 'Type student name...'}" autocomplete="off">
         </div>
 
-        <div id="student-list-container" class="student-list-container"></div>
+        <div id="student-list-container" class="student-list-container" style="max-height:120px; min-height:80px; overflow-y:auto; margin-top:8px;"></div>
         <div id="selection-hint" style="font-size:0.85em; color:#888; margin-top:5px; text-align:right;">No student selected</div>
 
         <hr style="margin: 15px 0; border:0; border-top:1px solid #eee;">
@@ -8943,28 +9613,42 @@ function showAddLogEntryDialog() {
     const saveBtn = dialog.querySelector('#save-manual-log-btn');
     const selectionHint = dialog.querySelector('#selection-hint');
 
+    dialog._checkDirty = () => {
+        const hasSelected = !!selectedUid;
+        const searchVal = (searchInput?.value || '').trim();
+        const manualDate = document.getElementById('manual-date')?.value;
+        const manualTime = document.getElementById('manual-time')?.value;
+        return hasSelected || searchVal !== '' || (manualDate && manualDate !== formattedDate) || (manualTime && manualTime !== formattedTime);
+    };
+
     const renderList = (filterText = '') => {
         listContainer.innerHTML = '';
-        const lowerFilter = filterText.toLowerCase();
+        const lowerFilter = filterText.toLowerCase().trim();
+        if (!lowerFilter) {
+            listContainer.innerHTML = `<div style="padding:15px; text-align:center; opacity:0.5; font-size:0.85em;"><i class="fa-solid fa-magnifying-glass" style="margin-right:5px;"></i>Type to search students...</div>`;
+            return;
+        }
+
         const filtered = studentList.filter(s =>
             s.name.toLowerCase().includes(lowerFilter) ||
-            s.uid.toLowerCase().includes(lowerFilter)
+            (isGlobalAdmin && s.allUids.some(u => u.toLowerCase().includes(lowerFilter)))
         );
 
         if (filtered.length === 0) {
-            listContainer.innerHTML = `<div style="padding:20px; text-align:center; opacity:0.6;">No results found</div>`;
+            listContainer.innerHTML = `<div style="padding:15px; text-align:center; opacity:0.6; font-size:0.85em;">No results found</div>`;
             return;
         }
 
         const itemsToShow = filtered.slice(0, 50);
         itemsToShow.forEach(student => {
+            const isSelected = selectedUid === student.primaryUid;
             const div = document.createElement('div');
-            div.setAttribute('class', `student-item ${selectedUid === student.uid ? 'selected' : ''}`);
+            div.setAttribute('class', `student-item ${isSelected ? 'selected' : ''}`);
             div.innerHTML = `
                 <div class="student-avatar-placeholder">${student.initials}</div>
                 <div class="student-info">
                     <div class="student-name">${escapeHtml(student.name)}</div>
-                    <div class="student-uid">${escapeHtml(student.uid)}</div>
+                    ${student.subtitle ? `<div class="student-uid" style="font-size:0.82em; opacity:0.75;">${escapeHtml(student.subtitle)}</div>` : ''}
                 </div>`;
             div.onclick = () => selectStudent(student);
             listContainer.appendChild(div);
@@ -8972,7 +9656,7 @@ function showAddLogEntryDialog() {
     };
 
     const selectStudent = (student) => {
-        selectedUid = student.uid;
+        selectedUid = student.primaryUid;
         renderList(searchInput.value);
         selectionHint.textContent = `Selected: ${student.name}`;
         selectionHint.style.color = "var(--primary-color)";
@@ -9051,11 +9735,33 @@ function showEditLogDialog(group) {
     const commonDateObj = new Date(firstLog.timestamp);
     const formattedDate = commonDateObj.toISOString().split('T')[0];
 
-    // --- Determine correct UID display value ---
-    // If we have the display array (actual card IDs), use that. Otherwise fallback to uid.
-    const uidDisplayValue = (group.uidsForDisplay && group.uidsForDisplay.length > 0)
-        ? group.uidsForDisplay.join(', ')
-        : group.uid;
+    // --- Robustly determine Student Data, UID (Hardware), and ID (Converted) ---
+    const dbKey = group.dbKey || lookupPrimaryUid(group.uid) || (databaseMap[group.uid] ? group.uid : null);
+    const studentData = group.studentData || (dbKey ? databaseMap[dbKey] : null);
+
+    let uidDisplay = '';
+    let idDisplay = '';
+
+    if (studentData) {
+        if (studentData.hardware_uids && studentData.hardware_uids.length > 0) {
+            uidDisplay = studentData.hardware_uids.join(', ');
+        } else if (studentData.uids && studentData.uids.length > 0) {
+            uidDisplay = studentData.uids.map(convertExternalIdToUid).filter(Boolean).join(', ');
+        }
+
+        if (studentData.uids && studentData.uids.length > 0) {
+            idDisplay = studentData.uids.join(', ');
+        } else if (studentData.hardware_uids && studentData.hardware_uids.length > 0) {
+            idDisplay = studentData.hardware_uids.map(convertUidToExternalId).filter(Boolean).join(', ');
+        }
+    }
+
+    if (!uidDisplay) {
+        uidDisplay = (group.uid && group.uid.includes(':')) ? group.uid : (convertExternalIdToUid(group.uid) || group.uid);
+    }
+    if (!idDisplay) {
+        idDisplay = (group.uid && !group.uid.includes(':')) ? group.uid : (convertUidToExternalId(group.uid) || group.uid);
+    }
 
     let timestampFields = '';
     group.originalLogs.forEach((log, index) => {
@@ -9082,24 +9788,30 @@ function showEditLogDialog(group) {
                     </select>
                 </div>
 
-                <button class="delete-time-btn btn-red btn-icon" data-index="${index}" title="Delete Timestamp" style="margin-left:10px;">
-                    <i class="fa-solid fa-trash"></i>
+                <button class="delete-time-btn btn-red btn-icon" data-index="${index}" title="Delete Timestamp" style="margin-left:10px; border-radius:6px;">
+                    <i class="fa-solid fa-trash-can"></i>
                 </button>
             </div>
         </div>`;
     });
 
     dialog.innerHTML = `
-    <h3 class="dialog-title">Edit Log Entry</h3>
+    <h3 class="dialog-title"><i class="fa-solid fa-pen-to-square"></i> Edit Log Entry</h3>
     <div class="dialog-content">
         <div class="form-group">
             <label class="dialog-label-fixed"><i class="fa-solid fa-quote-right"></i> Name</label>
-            <input type="text" id="edit-name" class="form-control" value="${escapeHtml(group.name)}" disabled>
+            <input type="text" id="edit-name" class="form-control" value="${escapeHtml(studentData?.name || group.name)}" disabled>
+        </div>
+        ${isGlobalAdmin ? `
+        <div class="form-group">
+            <label class="dialog-label-fixed"><i class="fa-solid fa-id-card"></i> ID</label>
+            <input type="text" id="edit-student-id" class="form-control" value="${escapeHtml(idDisplay)}" disabled>
         </div>
         <div class="form-group">
             <label class="dialog-label-fixed"><i class="fa-solid fa-wifi"></i> UID</label>
-            <input type="text" id="edit-uid" class="form-control" value="${escapeHtml(uidDisplayValue)}" disabled>
+            <input type="text" id="edit-card-uid" class="form-control" value="${escapeHtml(uidDisplay)}" disabled>
         </div>
+        ` : ''}
         <div class="form-group">
             <label class="dialog-label-fixed"><i class="fa-regular fa-calendar-days"></i> Date</label>
             <input type="date" id="edit-date" class="form-control" value="${formattedDate}">
@@ -9731,26 +10443,30 @@ function handleExcelFile(event) {
             const worksheet = workbook.Sheets[firstSheetName];
             const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }); // Read as array of arrays
 
-            const excelMappings = {};
+            const excelList = [];
             // Skip header row (index 0)
             for (let i = 1; i < jsonData.length; i++) {
                 const row = jsonData[i];
                 if (row && row.length >= 2) {
                     const name = row[0];
-                    const uid = String(row[1]);
-                    const email = row[2] || ''; // Read email from 3rd column, default to empty
+                    const rawUid = String(row[1]).trim();
+                    const convertedUid = convertUidToExternalId(rawUid);
+                    const email = row[2] ? String(row[2]).trim() : '';
 
-                    if (name && uid) {
-                        excelMappings[uid.trim()] = { name: String(name).trim(), email: String(email).trim() };
+                    if (name && convertedUid) {
+                        excelList.push({
+                            name: String(name).trim(),
+                            email: email,
+                            uids: [convertedUid]
+                        });
                     }
                 }
             }
 
-            const excelCount = Object.keys(excelMappings).length;
-            if (excelCount === 0) {
-                return showNotification('error', 'Import Failed', 'Could not find Name and UID.');
+            if (excelList.length === 0) {
+                return showNotification('error', 'Import Failed', 'Could not find valid student Name and UID in the file.');
             }
-            showDatabaseImportDialog(excelMappings);
+            showDatabaseImportDialog(excelList);
         } catch (error) {
             console.error('Excel import error:', error);
             showNotification('error', 'Import Failed', 'Could not process the Excel file.');
@@ -9762,9 +10478,9 @@ function handleExcelFile(event) {
 
 /**
  * Show import dialog for database Excel data.
- * @param {Object} excelMappings - The UID-name mappings from Excel.
+ * @param {Array} excelList - Array of { name, email, uids } student objects from Excel.
  */
-function showDatabaseImportDialog(excelMappings) {
+function showDatabaseImportDialog(excelList) {
     const dialogBackdrop = document.createElement('div');
     dialogBackdrop.setAttribute('class', 'dialog-backdrop');
     const dialog = document.createElement('div');
@@ -9773,8 +10489,8 @@ function showDatabaseImportDialog(excelMappings) {
     dialog.setAttribute('aria-modal', 'true');
 
     dialog.innerHTML = `
-        <h3 class="dialog-title">Import UID Database</h3>
-        <div class="dialog-content"><p>Found ${Object.keys(excelMappings).length} entries in the Excel file. How would you like to import them?</p>
+        <h3 class="dialog-title">Import Student Database</h3>
+        <div class="dialog-content"><p>Found ${excelList.length} student entries in the Excel file. How would you like to import them?</p>
         </div><div class="dialog-actions">
             <button id="merge-db-btn" class="btn-blue">Merge</button>
             <button id="replace-db-btn" class="btn-orange">Replace</button>
@@ -9786,12 +10502,18 @@ function showDatabaseImportDialog(excelMappings) {
 
     document.getElementById('merge-db-btn').addEventListener('click', () => {
         let newCount = 0;
-        for (const [uid, data] of Object.entries(excelMappings)) {
-            if (!databaseMap[uid]) {
-                databaseMap[uid] = data; // Add the {name, email} object
+        excelList.forEach(item => {
+            const exists = Object.values(databaseMap).some(s =>
+                (item.email && s.email && s.email.toLowerCase() === item.email.toLowerCase()) ||
+                (s.uids && s.uids.some(u => item.uids.includes(u)))
+            );
+            if (!exists) {
+                const newKey = `import_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+                databaseMap[newKey] = item;
                 newCount++;
             }
-        }
+        });
+        window.buildUIDToPrimaryUidMap();
         if (isOnline) {
             syncDatabaseToSheet();
             refreshAdminViews();
@@ -9802,13 +10524,18 @@ function showDatabaseImportDialog(excelMappings) {
     });
 
     document.getElementById('replace-db-btn').addEventListener('click', () => {
-        databaseMap = { ...excelMappings }; // Replace with the new map structure
+        const newMap = {};
+        excelList.forEach((item, idx) => {
+            newMap[`import_${idx + 1}`] = item;
+        });
+        databaseMap = newMap;
+        window.buildUIDToPrimaryUidMap();
         if (isOnline) {
             syncDatabaseToSheet();
             refreshAdminViews();
         }
         updateUI();
-        showNotification('success', 'Database Replaced', `Database now contains ${Object.keys(excelMappings).length} entries.`);
+        showNotification('success', 'Database Replaced', `Database now contains ${excelList.length} entries.`);
         document.body.removeChild(dialogBackdrop);
     });
 
@@ -10036,15 +10763,14 @@ function updateLogsList() {
 
         const studentData = dbKey ? databaseMap[dbKey] : null;
         const name = studentData ? studentData.name : 'Unknown';
-        const uidsForDisplay = studentData ? studentData.uids : [scannedUid];
+        const uidsForDisplay = studentData ? (studentData.hardware_uids || studentData.uids || [scannedUid]) : [scannedUid];
 
         const day = String(dateObj.getDate()).padStart(2, '0');
         const month = String(dateObj.getMonth() + 1).padStart(2, '0');
         const year = dateObj.getFullYear();
         const date = `${day}-${month}-${year}`;
 
-        // --- THIS IS THE REVERTED LOGIC ---
-        // The key now uses the specific card's UID (`scannedUid`), ensuring a separate row for each card.
+        // The key uses the specific card's UID (`scannedUid`), ensuring a separate row for each card.
         const key = `${date}_${scannedUid}`;
 
         if (!grouped[key]) {
@@ -10052,9 +10778,11 @@ function updateLogsList() {
                 key: key,
                 date,
                 dateObj: new Date(year, month - 1, day),
-                uid: scannedUid, // The specific UID for this group
+                uid: scannedUid,
+                dbKey: dbKey,
                 name: name,
-                uidsForDisplay: uidsForDisplay, // All UIDs for the student, for context
+                studentData: studentData,
+                uidsForDisplay: uidsForDisplay,
                 originalLogs: []
             };
         }
@@ -10218,15 +10946,12 @@ function updateLogsList() {
 
         const nameCell = document.createElement('td');
         nameCell.setAttribute('class', 'name-cell name-column');
-        nameCell.textContent = group.name;
-        row.appendChild(nameCell);
-
-        if (isAdminForCourse(currentCourse)) {
-            const uidCell = document.createElement('td');
-            uidCell.setAttribute('class', 'uid-cell uid-column admin-only');
-            uidCell.innerHTML = `<span class="uid-badge">${escapeHtml(group.uid)}</span>`;
-            row.appendChild(uidCell);
+        if (group.name === 'Unknown') {
+            nameCell.innerHTML = `<span class="unknown-name-badge" title="Unknown card UID"><i class="fa-solid fa-id-card"></i> ${escapeHtml(group.uid || 'Unknown')}</span>`;
+        } else {
+            nameCell.textContent = group.name;
         }
+        row.appendChild(nameCell);
 
         const dateCell = document.createElement('td');
         dateCell.setAttribute('class', 'date-cell date-column');
@@ -10478,24 +11203,31 @@ function showAddEntryFromLog(uid) {
     dialog.setAttribute('role', 'dialog');
     dialog.setAttribute('aria-modal', 'true');
 
+    const initHw = (uid && uid.includes(':')) ? uid : convertExternalIdToUid(uid);
+    const initId = (uid && !uid.includes(':')) ? uid : convertUidToExternalId(uid);
+
     dialog.innerHTML = `
-        <h3 class="dialog-title">Add to Database</h3>
-        <div class="dialog-content"><p>Enter the details for the student with this UID.</p>
+        <h3 class="dialog-title"><i class="fa-solid fa-user-plus"></i> Add to Database</h3>
+        <div class="dialog-content"><p>Enter the details for the student with this card.</p>
         <div class="form-group">
-            <label><i class="fa-solid fa-wifi"></i> UID:</label>
-            <input type="text" class="form-control" placeholder="AB:CD:12:34" value="${escapeHtml(uid)}" disabled>
-        </div>
-        <div class="form-group">
-            <label for="add-log-name"><i class="fa-solid fa-quote-left"></i> Name*:</label>
+            <label class="dialog-label-fixed" for="add-log-name"><i class="fa-solid fa-quote-left"></i> Name*:</label>
             <input type="text" id="add-log-name" class="form-control" placeholder="Student's Full Name">
         </div>
         <div class="form-group">
-            <label for="add-log-email"><i class="fa-solid fa-at"></i> Email*:</label>
+            <label class="dialog-label-fixed" for="add-log-email"><i class="fa-solid fa-at"></i> Email*:</label>
             <input type="email" id="add-log-email" class="form-control" placeholder="nsurname00@epoka.edu.al">
         </div>
+        <div class="form-group">
+            <label class="dialog-label-fixed" for="add-log-hardware-uid"><i class="fa-solid fa-wifi"></i> UID:</label>
+            <input type="text" id="add-log-hardware-uid" class="form-control" placeholder="04:a2:3f:8a" value="${escapeHtml(initHw)}">
+        </div>
+        <div class="form-group">
+            <label class="dialog-label-fixed" for="add-log-student-id"><i class="fa-solid fa-id-card"></i> ID:</label>
+            <input type="text" id="add-log-student-id" class="form-control" placeholder="Auto-calculated from UID" value="${escapeHtml(initId)}" disabled style="opacity:0.75; cursor:not-allowed; background:rgba(0,0,0,0.04);">
+        </div>
         </div> <div class="dialog-actions">
-            <button id="cancel-add-log-btn" class="btn-red">Cancel</button>
-            <button id="confirm-add-log-btn" class="btn-green">Add Student</button>
+            <button id="cancel-add-log-btn" class="btn-red"><i class="fa-solid fa-xmark"></i> Cancel</button>
+            <button id="confirm-add-log-btn" class="btn-green"><i class="fa-solid fa-check"></i> Add Student</button>
         </div>`;
 
     dialogBackdrop.appendChild(dialog);
@@ -10503,6 +11235,16 @@ function showAddEntryFromLog(uid) {
 
     const nameInput = dialog.querySelector('#add-log-name');
     const emailInput = dialog.querySelector('#add-log-email');
+    const hwInput = dialog.querySelector('#add-log-hardware-uid');
+    const idInput = dialog.querySelector('#add-log-student-id');
+
+    // Real-time calculation from UID to ID
+    if (hwInput && idInput) {
+        hwInput.addEventListener('input', () => {
+            const raw = hwInput.value.trim();
+            idInput.value = convertUidToExternalId(raw) || '';
+        });
+    }
 
     const closeDialog = () => {
         if (document.body.contains(dialogBackdrop)) document.body.removeChild(dialogBackdrop);
@@ -10511,17 +11253,22 @@ function showAddEntryFromLog(uid) {
 
     dialog.querySelector('#cancel-add-log-btn').addEventListener('click', closeDialog);
     dialog.querySelector('#confirm-add-log-btn').addEventListener('click', async () => {
-        const nameInput = dialog.querySelector('#add-log-name');
-        const emailInput = dialog.querySelector('#add-log-email');
-
         // --- Validation ---
         clearInputError(nameInput);
         clearInputError(emailInput);
+        clearInputError(idInput);
+        clearInputError(hwInput);
         const name = nameInput.value.trim();
         const email = emailInput.value.trim();
+        const rawHw = hwInput.value.trim();
+        const rawId = idInput.value.trim();
+        const finalUid = rawId || convertUidToExternalId(rawHw) || rawHw;
+        const finalHardwareUid = rawHw || convertExternalIdToUid(rawId) || rawId;
+
         let isValid = true;
         if (name === '') { showInputError(nameInput, 'Name is required.'); isValid = false; }
         if (!isValidEmail(email)) { showInputError(emailInput, 'A valid email is required.'); isValid = false; }
+        if (!finalUid && !finalHardwareUid) { showInputError(idInput, 'UID or ID is required.'); isValid = false; }
         if (!isValid) return;
 
         const confirmBtn = dialog.querySelector('#confirm-add-log-btn');
@@ -10532,7 +11279,8 @@ function showAddEntryFromLog(uid) {
             const submissionData = {
                 name: name,
                 email: email,
-                uid: uid, // 'uid' is available from the outer function's scope
+                uid: finalUid,
+                hardwareUid: finalHardwareUid,
                 sentBy: {
                     name: currentUser?.name || '',
                     email: currentUser?.email || ''
@@ -10540,7 +11288,7 @@ function showAddEntryFromLog(uid) {
             };
 
             if (isGlobalAdmin) {
-                const match = findDuplicateInDatabase({ name, email, uid }); // Check for duplicates
+                const match = findDuplicateInDatabase({ name, email, uid: finalUid, hardwareUid: finalHardwareUid }); // Check for duplicates
 
                 if (match) {
                     // DUPLICATE FOUND: Show the warning dialog
@@ -10595,9 +11343,12 @@ function updateDatabaseList() {
     const entries = Object.entries(databaseMap).filter(([dbKey, data]) => {
         if (!dbFilter) return true;
         const searchFilter = dbFilter.toLowerCase();
+        const hasIdMatch = (data.uids || []).some(id => String(id).toLowerCase().includes(searchFilter));
+        const hasUidMatch = (data.hardware_uids || []).some(uid => String(uid).toLowerCase().includes(searchFilter));
         return (data.name.toLowerCase().includes(searchFilter) ||
             (data.email && data.email.toLowerCase().includes(searchFilter)) ||
-            data.uids.some(uid => uid.toLowerCase().includes(searchFilter)));
+            hasIdMatch ||
+            hasUidMatch);
     });
 
     entries.sort((a, b) => {
@@ -10611,9 +11362,12 @@ function updateDatabaseList() {
         } else if (field === 'email') {
             valA = a[1].email || '';
             valB = b[1].email || '';
+        } else if (field === 'id') {
+            valA = (a[1].uids && a[1].uids[0]) || '';
+            valB = (b[1].uids && b[1].uids[0]) || '';
         } else {
-            valA = a[1].uids[0] || ''; // Sort by first UID in the list
-            valB = b[1].uids[0] || '';
+            valA = (a[1].hardware_uids && a[1].hardware_uids[0]) || (a[1].uids && a[1].uids[0]) || '';
+            valB = (b[1].hardware_uids && b[1].hardware_uids[0]) || (b[1].uids && b[1].uids[0]) || '';
         }
         return multiplier * String(valA).localeCompare(String(valB));
     });
@@ -10642,12 +11396,27 @@ function updateDatabaseList() {
 
     paginatedEntries.forEach(([dbKey, data]) => {
         const row = document.createElement('tr');
-        // Use the new .uid-badge class here
-        const uidBadges = data.uids.map(uid => `<span class="uid-badge">${escapeHtml(uid)}</span>`).join(' ');
+        
+        // ID(s)
+        const idList = (data.uids && data.uids.length > 0)
+            ? data.uids
+            : (data.hardware_uids || []).map(convertUidToExternalId).filter(Boolean);
+        const idBadges = idList.length > 0
+            ? idList.map(id => `<span class="uid-badge" style="background:#e3f2fd; color:#1565c0;">${escapeHtml(id)}</span>`).join(' ')
+            : `<span style="opacity:0.4;">—</span>`;
+
+        // UID(s)
+        const hwList = (data.hardware_uids && data.hardware_uids.length > 0)
+            ? data.hardware_uids
+            : (data.uids || []).map(convertExternalIdToUid).filter(Boolean);
+        const hwBadges = hwList.length > 0
+            ? hwList.map(uid => `<span class="uid-badge">${escapeHtml(uid)}</span>`).join(' ')
+            : `<span style="opacity:0.4;">—</span>`;
 
         row.innerHTML = `
             <td class="name-cell">${escapeHtml(data.name)}</td>
-            <td class="uid-cell">${uidBadges}</td>
+            <td class="id-cell">${idBadges}</td>
+            <td class="uid-cell">${hwBadges}</td>
             <td class="email-cell">${escapeHtml(data.email || '')}</td>
             <td class="actions-cell admin-only">
                 <div class="actions-cell-content">
@@ -10663,29 +11432,86 @@ function updateDatabaseList() {
 }
 
 /**
-* Renders the course grid within the Global Settings dialog.
-* Handles styling, admin counts, and search filtering.
+* Extracts a clean human-readable course code from a system name, stripping archive/EIS ID suffixes.
+*/
+function getCleanCourseCode(courseName, eisId) {
+    if (!courseName) return '';
+    let name = courseName;
+    const effectiveEisId = eisId || (typeof courseInfoMap !== 'undefined' ? courseInfoMap[courseName]?.eisId : null);
+    if (effectiveEisId) {
+        const eisRegex = new RegExp(`_${effectiveEisId}$`, 'i');
+        name = name.replace(eisRegex, '');
+    } else {
+        name = name.replace(/_EIS_\d+$/i, '').replace(/_\d{4,7}$/i, '');
+    }
+    name = name.replace(/_archived$/i, '');
+    return name.replace(/_/g, ' ');
+}
+
+/**
+* Parses a course name into text and numeric components for smart sorting (e.g. "PIR 123" -> text: "PIR", num: 123).
+*/
+function parseCourseCode(courseName, eisId) {
+    const clean = getCleanCourseCode(courseName, eisId).trim();
+    const match = clean.match(/^([A-Za-z\s]+)?(\d+)?(.*)$/);
+    if (!match) return { text: clean, num: 0, raw: clean };
+    const text = (match[1] || '').trim();
+    const num = match[2] ? parseInt(match[2], 10) : 0;
+    const rest = (match[3] || '').trim();
+    return { text, num, rest, raw: clean };
+}
+
+/**
+* Sorts courses first by numeric code (123 then 211 then 322), then by text prefix.
+*/
+function courseCodeComparator(aEntry, bEntry) {
+    const a = parseCourseCode(aEntry[0], aEntry[1]?.eisId);
+    const b = parseCourseCode(bEntry[0], bEntry[1]?.eisId);
+
+    // If numbers differ, sort by numeric code first (e.g. PIR 123 before CE 211 before CE 322)
+    if (a.num !== b.num) {
+        if (a.num === 0) return 1;
+        if (b.num === 0) return -1;
+        return a.num - b.num;
+    }
+    // If numbers are equal or absent, sort by text prefix
+    const textComp = a.text.localeCompare(b.text);
+    if (textComp !== 0) return textComp;
+    return a.raw.localeCompare(b.raw);
+}
+
+/**
+* Renders the course list within the Settings dialog.
+* Handles list formatting, Active & Archived categorization, and search filtering.
 * @param {Object} courseInfo - The dictionary of course metadata.
 * @param {string} [filterText=''] - Optional text to filter the list.
 */
-function renderCoursesInSettings(courseInfo, filterText = '') {
-    const gridContainer = document.getElementById('settings-course-grid');
-    if (!gridContainer) return;
+let settingsCourseSort = localStorage.getItem('settings_course_sort') || 'code-asc';
 
-    gridContainer.innerHTML = '';
+/**
+* Renders the course list within the Settings dialog.
+* Handles list formatting, Active & Archived categorization, interactive sorting, and search filtering.
+* @param {Object} courseInfo - The dictionary of course metadata.
+* @param {string} [filterText=''] - Optional text to filter the list.
+*/
+function renderCoursesInSettings(courseInfo, filterText = '', targetContainerId = 'settings-courses-container') {
+    const container = document.getElementById(targetContainerId) || document.getElementById('settings-courses-container') || document.getElementById('settings-course-grid');
+    if (!container) return;
+
+    container.innerHTML = '';
 
     // 1. Prepare Search Terms
     const lowerFilter = filterText.toLowerCase().trim();
-    const strippedFilter = lowerFilter.replace(/\s+/g, ''); // e.g., "ce 202" -> "ce202"
+    const strippedFilter = lowerFilter.replace(/\s+/g, '');
 
     // 2. Filter and Sort Data
-    const filteredCourses = Object.entries(courseInfo)
+    const filteredCourses = Object.entries(courseInfo || {})
         .filter(([name, data]) => {
-            if (!lowerFilter) return true; // Show all if no filter
+            if (!lowerFilter) return true;
 
             const nameLow = name.toLowerCase();
-            const nameAsText = nameLow.replace(/_/g, ' ');   // "ce_202" -> "ce 202"
-            const nameStripped = nameLow.replace(/_/g, '');  // "ce_202" -> "ce202"
+            const nameAsText = nameLow.replace(/_/g, ' ');
+            const nameStripped = nameLow.replace(/_/g, '');
             const eisId = String(data.eisId || '');
 
             return nameLow.includes(lowerFilter) ||
@@ -10693,59 +11519,291 @@ function renderCoursesInSettings(courseInfo, filterText = '') {
                 nameStripped.includes(strippedFilter) ||
                 eisId.includes(lowerFilter);
         })
-        .sort((a, b) => a[0].localeCompare(b[0])); // Sort Alphabetically (A-Z)
+        .sort((a, b) => {
+            if (settingsCourseSort === 'code-asc') return courseCodeComparator(a, b);
+            if (settingsCourseSort === 'code-desc') return -courseCodeComparator(a, b);
+            if (settingsCourseSort === 'date-asc') {
+                const dateA = a[1]?.startDate || '';
+                const dateB = b[1]?.startDate || '';
+                if (dateA !== dateB) return dateA.localeCompare(dateB);
+                return courseCodeComparator(a, b);
+            }
+            if (settingsCourseSort === 'date-desc') {
+                const dateA = a[1]?.startDate || '';
+                const dateB = b[1]?.startDate || '';
+                if (dateA !== dateB) return dateB.localeCompare(dateA);
+                return courseCodeComparator(a, b);
+            }
+            return courseCodeComparator(a, b);
+        });
 
     // 3. Handle Empty State
     if (filteredCourses.length === 0) {
-        gridContainer.innerHTML = `<div style="grid-column:1/-1; text-align:center; padding:30px; opacity:0.6; font-style:italic;">No courses found matching "${escapeHtml(filterText)}".</div>`;
+        container.innerHTML = `<div style="text-align:center; padding:30px; opacity:0.6; font-style:italic;">No courses found matching "${escapeHtml(filterText)}".</div>`;
         return;
     }
 
-    // 4. Render Cards
-    filteredCourses.forEach(([courseName, data]) => {
-        // Determine Color Strip based on Category
-        const category = (data.defaultCategory || 'theory').toLowerCase();
-        let stripClass = 'strip-default';
-        if (category.includes('theory')) stripClass = 'strip-theory';
-        else if (category.includes('lab')) stripClass = 'strip-lab';
-        else if (category.includes('practice')) stripClass = 'strip-practice';
+    const activeList = filteredCourses.filter(([_, d]) => !d.archived);
+    const archivedList = filteredCourses.filter(([_, d]) => !!d.archived);
 
-        // Calculate Admin Count
-        const rawAdmins = data.adminEmails || '';
-        const adminCount = rawAdmins.toString().split(',').map(e => e.trim()).filter(Boolean).length;
+    let isArchivedCollapsed = localStorage.getItem('settings_archived_collapsed') !== 'false';
 
-        // Build HTML
-        const card = document.createElement('div');
-        card.setAttribute('class', 'modern-course-card');
-        if (data.archived) card.style.opacity = '0.55';
-        card.innerHTML = `
-            <div class="card-color-strip ${data.archived ? 'strip-default' : stripClass}"></div>
-            <div class="card-body">
-                <div class="card-title-row">
-                    <div class="card-course-name">${escapeHtml(courseName.replace(/_/g, ' '))}</div>
-                    <div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;">
-                        ${data.archived ? `<span class="card-eis-badge" style="background:#f0ede8;color:#8c6a3a;"><i class="fa-solid fa-box-archive"></i> Archived</span>` : ''}
-                        ${data.eisId ? `<span class="card-eis-badge">#${escapeHtml(data.eisId)}</span>` : ''}
+    const renderTable = (courses, isArchivedTable = false) => {
+        if (courses.length === 0) {
+            return `<div style="text-align:center; padding:18px; opacity:0.6; font-style:italic;">No ${isArchivedTable ? 'archived' : 'active'} courses.</div>`;
+        }
+
+        const rows = courses.map(([courseName, data]) => {
+            const cleanCode = getCleanCourseCode(courseName, data.eisId);
+            const eisBadge = data.eisId
+                ? `<span class="badge-eis">#${escapeHtml(data.eisId)}</span>`
+                : '';
+            const startDate = data.startDate
+                ? `<span style="white-space:nowrap;"><i class="fa-regular fa-calendar-days" style="opacity:0.7; margin-right:4px;"></i>${escapeHtml(data.startDate)}</span>`
+                : `<span style="opacity:0.4;">—</span>`;
+
+            const rawAdmins = (data.adminEmails || '').toString().split(',').map(e => e.trim()).filter(Boolean);
+            let adminDisplay = '<span style="opacity:0.4;">None</span>';
+            if (rawAdmins.length > 2) {
+                adminDisplay = `<span class="badge-count" style="background:#e8f5e9; color:#2e7d32;"><i class="fa-solid fa-user-shield"></i> ${rawAdmins.length} Admins</span>`;
+            } else if (rawAdmins.length > 0) {
+                adminDisplay = `<span style="font-size:0.9em; word-break:break-all;"><i class="fa-solid fa-user-shield" style="opacity:0.6; margin-right:4px;"></i>${escapeHtml(rawAdmins.join(', '))}</span>`;
+            }
+
+            return `
+                <tr ${isArchivedTable ? 'style="opacity:0.75;"' : ''}>
+                    <td>
+                        <strong style="color:var(--text-color); font-size:1.02em;">${escapeHtml(cleanCode)}</strong>
+                        ${eisBadge}
+                    </td>
+                    <td>${startDate}</td>
+                    <td>${adminDisplay}</td>
+                    <td class="actions-cell">
+                        <div class="actions-cell-content">
+                            <button class="btn-blue btn-icon edit-course-row-btn" data-course-name="${escapeHtml(courseName)}" title="Edit Course">
+                                <i class="fa-solid fa-pencil"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+
+        const codeSortIcon = settingsCourseSort.startsWith('code')
+            ? (settingsCourseSort.endsWith('asc') ? 'fa-sort-up' : 'fa-sort-down')
+            : 'fa-sort';
+        const dateSortIcon = settingsCourseSort.startsWith('date')
+            ? (settingsCourseSort.endsWith('asc') ? 'fa-sort-up' : 'fa-sort-down')
+            : 'fa-sort';
+
+        return `
+            <div class="table-container">
+                <table class="database-table">
+                    <thead>
+                        <tr>
+                            <th class="sortable-settings-course" data-sort="code" style="cursor:pointer;" title="Sort by Course Code">
+                                Course Code <i class="sort-icon fa-solid ${codeSortIcon}" style="margin-left:4px; opacity:0.7;"></i>
+                            </th>
+                            <th class="sortable-settings-course" data-sort="date" style="cursor:pointer;" title="Sort by Start Date">
+                                Start Date <i class="sort-icon fa-solid ${dateSortIcon}" style="margin-left:4px; opacity:0.7;"></i>
+                            </th>
+                            <th>Admin</th>
+                            <th class="actions-header">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>
+        `;
+    };
+
+    let html = `
+        <div class="settings-courses-group">
+            <div class="settings-group-header">
+                <strong><i class="fa-solid fa-book-open" style="color:var(--primary-color);"></i> Active Courses</strong>
+                <span class="badge-count">${activeList.length}</span>
+            </div>
+            ${renderTable(activeList, false)}
+        </div>
+    `;
+
+    if (archivedList.length > 0 || !lowerFilter) {
+        html += `
+            <div class="settings-courses-group">
+                <div class="settings-archived-toggle" id="settings-archived-toggle-btn">
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <i class="fa-solid fa-chevron-right archived-toggle-chevron ${isArchivedCollapsed ? '' : 'is-open'}" id="archived-toggle-chevron"></i>
+                        <strong><i class="fa-solid fa-box-archive" style="color:#8c6a3a;"></i> Archived Courses</strong>
+                        <span class="badge-count" style="background:#efebe9; color:#5d4037;">${archivedList.length}</span>
                     </div>
                 </div>
-                <div class="card-meta-row">
-                    <div class="card-meta-item"><i class="fa-regular fa-clock"></i> ${escapeHtml(data.defaultHours || 0)}h</div>
-                    <div class="card-meta-item" style="text-transform:capitalize;"><i class="fa-solid fa-tag"></i> ${escapeHtml(category)}</div>
+                <div class="settings-archived-collapse-wrapper ${isArchivedCollapsed ? '' : 'is-open'}" id="settings-archived-wrapper">
+                    <div class="settings-archived-collapse-inner">
+                        ${renderTable(archivedList, true)}
+                    </div>
                 </div>
             </div>
-            <div class="card-footer">
-                <span class="admin-pill"><i class="fa-solid fa-user-shield"></i> ${adminCount} Admin${adminCount !== 1 ? 's' : ''}</span>
-                <i class="fa-solid fa-pen-to-square"></i>
-            </div>`;
+        `;
+    }
 
-        // Attach Click Listener -> Opens Editor
-        card.onclick = () => {
-            // We do NOT close the settings dialog here, so the user can edit 
-            // and return to the list smoothly. The editor opens on top.
-            showCourseEditorDialog(courseName, data);
+    container.innerHTML = html;
+
+    // Attach Toggle Listener for Animated Archived Accordion
+    const toggleBtn = container.querySelector('.settings-archived-toggle') || container.querySelector('#settings-archived-toggle-btn');
+    if (toggleBtn) {
+        toggleBtn.onclick = () => {
+            isArchivedCollapsed = !isArchivedCollapsed;
+            localStorage.setItem('settings_archived_collapsed', isArchivedCollapsed ? 'true' : 'false');
+            const wrapper = container.querySelector('.settings-archived-collapse-wrapper') || container.querySelector('#settings-archived-wrapper');
+            const chevron = toggleBtn.querySelector('.archived-toggle-chevron') || toggleBtn.querySelector('#archived-toggle-chevron') || toggleBtn.querySelector('.fa-chevron-right');
+            if (wrapper) wrapper.classList.toggle('is-open', !isArchivedCollapsed);
+            if (chevron) chevron.classList.toggle('is-open', !isArchivedCollapsed);
         };
+    }
 
-        gridContainer.appendChild(card);
+    // Attach Header Sort Listeners
+    container.querySelectorAll('.sortable-settings-course').forEach(th => {
+        th.onclick = () => {
+            const sortKey = th.dataset.sort;
+            if (settingsCourseSort === `${sortKey}-asc`) {
+                settingsCourseSort = `${sortKey}-desc`;
+            } else {
+                settingsCourseSort = `${sortKey}-asc`;
+            }
+            localStorage.setItem('settings_course_sort', settingsCourseSort);
+            renderCoursesInSettings(courseInfo, filterText, targetContainerId);
+        };
+    });
+
+    // Attach Edit Listeners
+    container.querySelectorAll('.edit-course-row-btn').forEach(btn => {
+        btn.onclick = () => {
+            const cName = btn.dataset.courseName;
+            showCourseEditorDialog(cName, courseInfo[cName]);
+        };
+    });
+}
+
+/**
+* Strips academic and honorific titles (Prof., Dr., Assoc., Acad., MSc., Mr., Ms., Mrs., and combinations) from staff name for pure alphabetical sorting.
+*/
+function getCleanStaffNameForSort(name) {
+    if (!name) return '';
+    const titleTokenPattern = /^(?:Prof|Dr|Assoc|Acad|MSc|M\.Sc|Ph\.?D|Mr|Ms|Mrs)\.?(?:\s+|$)/i;
+    let clean = name.trim();
+    while (titleTokenPattern.test(clean)) {
+        clean = clean.replace(titleTokenPattern, '').trim();
+    }
+    return clean;
+}
+
+/**
+* Renders the staff members list grouped by role and sorted alphabetically (ignoring academic titles).
+*/
+function renderStaffInSettings(staffList, filterText = '') {
+    const container = document.getElementById('settings-staff-container');
+    if (!container) return;
+    container.innerHTML = '';
+
+    const lowerFilter = filterText.toLowerCase().trim();
+    const filtered = (staffList || []).filter(s => {
+        if (!lowerFilter) return true;
+        return (s.name && s.name.toLowerCase().includes(lowerFilter)) ||
+            (s.email && s.email.toLowerCase().includes(lowerFilter)) ||
+            (s.role && s.role.toLowerCase().includes(lowerFilter));
+    });
+
+    if (filtered.length === 0) {
+        container.innerHTML = `<div style="text-align:center; padding:30px; opacity:0.6; font-style:italic;">No staff members found.</div>`;
+        return;
+    }
+
+    // Group staff by position
+    const roleGroups = [
+        { name: 'Global Administrators', icon: 'fa-user-shield', items: filtered.filter(s => s.role === 'Global') },
+        { name: 'Lecturers & Staff', icon: 'fa-user-tie', items: filtered.filter(s => s.role !== 'Global' && s.role !== 'Student') },
+        { name: 'Students', icon: 'fa-graduation-cap', items: filtered.filter(s => s.role === 'Student') }
+    ];
+
+    let html = '';
+
+    roleGroups.forEach(group => {
+        if (group.items.length === 0) return;
+
+        // Sort alphabetically ignoring academic titles
+        group.items.sort((a, b) => {
+            const cleanA = getCleanStaffNameForSort(a.name);
+            const cleanB = getCleanStaffNameForSort(b.name);
+            return cleanA.localeCompare(cleanB);
+        });
+
+        const rows = group.items.map(s => {
+            const isGlobal = (s.role === 'Global');
+            const roleBadge = isGlobal
+                ? `<span style="background:var(--purple-color); color:white; padding:2px 6px; border-radius:4px; font-size:0.8em;">ADMIN</span>`
+                : `<span style="opacity:0.7; font-size:0.85em;">${escapeHtml(s.role || 'Lecturer')}</span>`;
+
+            return `
+                <tr>
+                    <td style="font-weight:500;">
+                        ${escapeHtml(s.name)}
+                    </td>
+                    <td>${escapeHtml(s.email)}</td>
+                    <td>${roleBadge}</td>
+                    <td class="actions-cell">
+                        <div class="actions-cell-content">
+                            <button class="btn-blue btn-icon edit-staff-btn" 
+                                data-row-index="${s.rowIndex}" 
+                                data-name="${escapeHtml(s.name)}" 
+                                data-uid="${escapeHtml(s.uid)}" 
+                                data-email="${escapeHtml(s.email)}" 
+                                data-role="${escapeHtml(s.role || 'Lecturer')}"
+                                title="Edit">
+                                <i class="fa-solid fa-pencil"></i>
+                            </button>
+                            <button class="btn-red btn-icon delete-staff-btn" 
+                                data-row-index="${s.rowIndex}" 
+                                data-name="${escapeHtml(s.name)}"
+                                title="Delete">
+                                <i class="fa-solid fa-trash"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+
+        html += `
+            <div class="settings-courses-group">
+                <div class="settings-group-header">
+                    <strong><i class="fa-solid ${group.icon}" style="color:var(--primary-color);"></i> ${group.name}</strong>
+                    <span class="badge-count">${group.items.length}</span>
+                </div>
+                <div class="table-container">
+                    <table class="database-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Email</th>
+                                <th>Position</th>
+                                <th class="actions-header">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+    });
+
+    container.innerHTML = html;
+
+    // Attach Staff Listeners
+    container.querySelectorAll('.edit-staff-btn').forEach(btn => {
+        btn.onclick = () => window.editStaffKey(btn.dataset.rowIndex, btn.dataset.name, btn.dataset.uid, btn.dataset.email, btn.dataset.role);
+    });
+    container.querySelectorAll('.delete-staff-btn').forEach(btn => {
+        btn.onclick = () => window.deleteStaffKey(btn.dataset.rowIndex, btn.dataset.name);
     });
 }
 
@@ -10767,7 +11825,7 @@ function updatePageTitle() {
     }
 
     if (currentCourse && currentCourse !== 'Default') {
-        const titleName = currentCourse.replace(/_/g, ' ');
+        const titleName = getCleanCourseCode(currentCourse, courseInfoMap[currentCourse]?.eisId);
         document.title = `${titlePrefix}${titleName} Attendance`;
     } else {
         document.title = `${titlePrefix}Stando`;
@@ -10919,15 +11977,19 @@ async function handleNfcReading({ serialNumber }) {
     // ============================================================
     if (!isSignedIn) {
         const notSignedInMsg = document.getElementById('not-signed-in-message');
-        if (notSignedInMsg) notSignedInMsg.innerHTML = `<div style="text-align:center;">Checking...</div>`;
+        if (notSignedInMsg) notSignedInMsg.innerHTML = `<div style="text-align:center;"><i class="fa-solid fa-circle-notch fa-spin"></i> Checking credentials...</div>`;
 
         try {
             const myDeviceId = getDeviceFingerprint();
+            const convertedCardId = convertUidToExternalId(serialNumber);
             // Ask the kiosk-login Edge Function if this UID belongs to a staff member
             const { data, error } = await supabaseClient.functions.invoke('kiosk-login', {
-                body: { uid: serialNumber, deviceId: myDeviceId }
+                body: { uid: serialNumber, convertedId: convertedCardId, deviceId: myDeviceId }
             });
-            if (error) throw error;
+            if (error) {
+                console.warn('Kiosk login invoke error:', error);
+                throw error;
+            }
 
             if (data && data.result === 'success') {
                 // === ADMIN LOGIN SUCCESS ===
@@ -10947,14 +12009,15 @@ async function handleNfcReading({ serialNumber }) {
                     showNotification('warning', 'Kiosk Login', data.message);
                 }
                 // === STUDENT CARD (GUEST MODE) ===
-                // Just show the UID
-                lastScannedUID = serialNumber;
+                // Just show the converted ID
+                lastScannedUID = convertedCardId;
                 updateAuthUI();
             }
 
         } catch (err) {
-            // Network error implies we are offline, show UID
-            lastScannedUID = serialNumber;
+            console.warn('Kiosk login error fallback:', err);
+            // Network error implies offline or unauthenticated guest, show converted ID
+            lastScannedUID = convertUidToExternalId(serialNumber);
             updateAuthUI();
         }
         return; // Stop here
@@ -10965,9 +12028,10 @@ async function handleNfcReading({ serialNumber }) {
     // Runs if Signed In OR in Lecturer Mode
     // ============================================================
 
+    const convertedUid = convertUidToExternalId(serialNumber);
     const primaryUid = lookupPrimaryUid(serialNumber);
-    const finalUid = primaryUid || serialNumber;
-    lastScannedUID = serialNumber;
+    const finalUid = primaryUid || convertedUid || serialNumber;
+    lastScannedUID = convertedUid;
 
     // Security Check: Only block if we are signed in but NOT an admin
     // (If isLecturerMode is true, we bypass this because auth is offline)
@@ -10988,16 +12052,8 @@ async function handleNfcReading({ serialNumber }) {
 
     const timestamp = new Date();
 
-    let sessionStr = '';
-    if (activeSessionCategory) {
-        sessionStr = activeSessionCategory;
-        if (activeSessionGroup) {
-            sessionStr += ' ' + activeSessionGroup;
-        }
-    }
-
     let newLog = {
-        uid: serialNumber,
+        uid: convertedUid,
         timestamp: timestamp.getTime(),
         id: Date.now() + Math.random().toString(36).substring(2, 11),
         manual: false,
@@ -11411,16 +12467,21 @@ function populateCourseButtons() {
     // Filter out archived courses, but keep the guestCourse if it's an archived one being visited
     coursesToDisplay = coursesToDisplay.filter(c => !courseInfoMap[c]?.archived || c === guestCourse);
 
+    // Sort course buttons naturally
+    coursesToDisplay.sort((a, b) => courseCodeComparator([a, courseInfoMap[a]], [b, courseInfoMap[b]]));
+
     coursesToDisplay.forEach(course => {
         const button = document.createElement('div');
         button.setAttribute('class', 'course-button' + (currentCourse === course ? ' active' : ''));
+        button.dataset.course = course;
 
         // Mark guest courses visually
         if (course === guestCourse) {
             button.classList.add('btn-orange');
         }
 
-        button.innerHTML = `<i class="fa-solid fa-table-list"></i>&nbsp; ${escapeHtml(course.replace(/_/g, ' '))}`;
+        const cleanCourseName = getCleanCourseCode(course, courseInfoMap[course]?.eisId);
+        button.innerHTML = `<i class="fa-solid fa-table-list"></i>&nbsp; ${escapeHtml(cleanCourseName)}`;
         button.addEventListener('click', () => selectCourseButton(course));
         courseButtonsContainer.appendChild(button);
     });
@@ -11444,8 +12505,8 @@ function selectCourseButton(course) {
     document.querySelectorAll('.course-button').forEach(btn => {
         btn.classList.remove('active');
         btn.classList.remove('selecting');
-        // Check inner text to find the correct button to activate
-        if (btn.innerText.trim().replace(/\s+/g, '_') === course) {
+        // Check dataset course or inner text to find the correct button to activate
+        if (btn.dataset.course === course || btn.innerText.trim().replace(/\s+/g, '_') === course) {
             btn.classList.add('selecting'); // Add selecting feedback
             btn.classList.add('active');
             // Remove selecting class after a short delay
