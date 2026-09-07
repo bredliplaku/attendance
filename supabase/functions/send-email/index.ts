@@ -19,6 +19,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 const ALLOWED_ORIGINS = new Set([
   "https://bredliplaku.com",
   "https://www.bredliplaku.com",
+  "https://attendance.bredliplaku.com",
   "https://bredliplaku.github.io",
 ]);
 const LOCALHOST_RE = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
@@ -27,11 +28,12 @@ function corsHeaders(req: Request): Record<string, string> {
   const origin = req.headers.get("origin") ?? "";
   const headers: Record<string, string> = {
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Vary": "Origin",
   };
-  if (origin) {
+  if (origin && (ALLOWED_ORIGINS.has(origin) || LOCALHOST_RE.test(origin))) {
     headers["Access-Control-Allow-Origin"] = origin;
-  } else {
+  } else if (!origin) {
     headers["Access-Control-Allow-Origin"] = "*";
   }
   return headers;
@@ -58,7 +60,7 @@ const footerHtml = `<hr style="border:none;border-top:1px solid #eee;margin:20px
 <p style="font-size:11px;color:#aaa;margin:0;">This is an automatically generated email. Please do not reply directly.</p>`;
 
 function escapeHtml(s: string): string {
-  return String(s ?? "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
 function formatDateForEmail(dateStr: string): string {
@@ -98,19 +100,19 @@ function buildHourPillsHtml(hoursStr: string, approvedHoursStr: string | null): 
       bg = "#f5f5f5"; color = "#999"; borderColor = "#ddd";
     }
     const displayTime = h.split(/[–\-]/)[0].trim();
-    return `<td style="padding:${tdPadding};"><span style="display:inline-block;background:${bg};color:${color};font-weight:600;font-size:13px;white-space:nowrap;padding:2px 10px;border-radius:${borderRadius};border:1px solid ${borderColor};">${displayTime}</span></td>`;
+    return `<td style="padding:${tdPadding};"><span style="display:inline-block;background:${bg};color:${color};font-weight:600;font-size:13px;white-space:nowrap;padding:2px 10px;border-radius:${borderRadius};border:1px solid ${borderColor};">${escapeHtml(displayTime)}</span></td>`;
   }).join("");
 }
 
 function sessionBadgeHtml(session: string): string {
   return (session && session !== "Default" && session.trim())
-    ? `&nbsp;<span style="background:#e3f2fd;color:#0053A1;font-size:11px;font-weight:700;padding:2px 8px;border-radius:4px;">${session}</span>`
+    ? `&nbsp;<span style="background:#e3f2fd;color:#0053A1;font-size:11px;font-weight:700;padding:2px 8px;border-radius:4px;">${escapeHtml(session)}</span>`
     : "";
 }
 
 function attachmentLinkHtml(url: string): string {
   return url
-    ? `<a href="${url}" style="color:#0053A1;text-decoration:none;font-weight:600;">View Document</a>`
+    ? `<a href="${escapeHtml(url)}" style="color:#0053A1;text-decoration:none;font-weight:600;">View Document</a>`
     : `<span style="color:#aaa;font-style:italic;">No attachment</span>`;
 }
 
@@ -127,7 +129,7 @@ async function getSignatureForAdmin(adminEmail: string): Promise<string> {
   }
   const { data } = await service.from("staff").select("name").ilike("email", adminEmail);
   if (data && data.length > 0 && data[0].name) {
-    return `<p>Best,<br>${data[0].name.trim().split(" ")[0]}</p>`;
+    return `<p>Best,<br>${escapeHtml(data[0].name.trim().split(" ")[0])}</p>`;
   }
   return `<p>Best,</p>`;
 }
@@ -192,7 +194,12 @@ async function sendViaResend(mail: { to: string[]; cc?: string[]; subject: strin
 
 Deno.serve(async (req) => {
   const cors = corsHeaders(req);
+  const origin = req.headers.get("origin") ?? "";
+  if (origin && !ALLOWED_ORIGINS.has(origin) && !LOCALHOST_RE.test(origin)) {
+    return new Response("Origin not allowed", { status: 403, headers: cors });
+  }
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
+  if (req.method !== "POST") return new Response("Method not allowed", { status: 405, headers: { ...cors, Allow: "POST, OPTIONS" } });
   const json = (body: unknown, status = 200) =>
     new Response(JSON.stringify(body), {
       status,
@@ -200,7 +207,8 @@ Deno.serve(async (req) => {
     });
 
   try {
-    const params = await req.json();
+    const params = await req.json().catch(() => null);
+    if (!params || typeof params !== "object" || Array.isArray(params)) return json({ result: "error", message: "Invalid JSON payload" }, 400);
     const template = params.template as string;
 
     // Verify the caller's session
@@ -215,9 +223,13 @@ Deno.serve(async (req) => {
 
     const adminTemplates = ["absence_approved", "absence_rejected", "registration_approved", "registration_rejected"];
     let isAdmin = false;
+    let isGlobalAdmin = false;
+    let adminCourses: string[] = [];
     if (adminTemplates.includes(template) || template === "absence_submitted") {
       const { data: status } = await userClient.rpc("check_admin_status");
       isAdmin = !!(status && status.isAdmin);
+      isGlobalAdmin = !!status?.isGlobalAdmin;
+      adminCourses = Array.isArray(status?.courses) ? status.courses : [];
       if (adminTemplates.includes(template) && !isAdmin) {
         return json({ result: "error", message: "Not authorized." }, 403);
       }
@@ -229,7 +241,7 @@ Deno.serve(async (req) => {
         .eq("request_id", params.request_id);
       const reqRow = rows?.[0];
       if (!reqRow) throw new Error("Request not found.");
-      if (!isAdmin && (reqRow.student_email || "").toLowerCase() !== callerEmail) {
+      if (!(isAdmin && (isGlobalAdmin || adminCourses.includes(reqRow.course))) && (reqRow.student_email || "").toLowerCase() !== callerEmail) {
         return json({ result: "error", message: "Not authorized." }, 403);
       }
 
@@ -239,7 +251,7 @@ Deno.serve(async (req) => {
 
       const formattedCourseName = String(reqRow.course || "").replace(/_/g, " ");
       const attachmentUrl = resolveAttachmentUrl(reqRow.attachment_url || "");
-      const reviewUrl = `https://bredliplaku.com/attendance/#${reqRow.course}`;
+      const reviewUrl = APP_URL + "#" + encodeURIComponent(reqRow.course);
       const descriptionHtml = (reqRow.description && reqRow.description.trim())
         ? escapeHtml(reqRow.description).replace(/\n/g, "<br>")
         : '<span style="color:#aaa;font-style:italic;">No description provided.</span>';
@@ -248,16 +260,16 @@ Deno.serve(async (req) => {
         <div style="font-family:Arial,'Helvetica Neue',Helvetica,sans-serif;font-size:14px;color:#333;line-height:1.6;max-width:600px;">
           <p style="margin:0 0 16px;color:#333;">Greetings,<br><br><span style="color:#555;">I am writing to submit a formal permission request. Please find the details of my request and the supporting documentation provided below for your review.</span></p>
           <table cellpadding="0" cellspacing="0" border="0" style="width:100%;border:1px solid #e5e5e5;border-radius:6px;margin-bottom:20px;background:#fafafa;cursor:default;">
-            <tr><td style="${labelStyle}">Student</td><td style="${valueStyle}"><strong>${reqRow.student_name}</strong><br><span style="font-size:12px;color:#888;">${reqRow.student_email}</span></td></tr>
-            <tr><td style="${labelStyle}">Course</td><td style="${valueStyle}"><strong>${formattedCourseName}</strong>${sessionBadgeHtml(reqRow.session || "")}</td></tr>
+            <tr><td style="${labelStyle}">Student</td><td style="${valueStyle}"><strong>${escapeHtml(reqRow.student_name)}</strong><br><span style="font-size:12px;color:#888;">${escapeHtml(reqRow.student_email)}</span></td></tr>
+            <tr><td style="${labelStyle}">Course</td><td style="${valueStyle}"><strong>${escapeHtml(formattedCourseName)}</strong>${sessionBadgeHtml(reqRow.session || "")}</td></tr>
             <tr><td style="${labelStyle}">Date</td><td style="${valueStyle}">${formatDateForEmail(reqRow.absence_date)}</td></tr>
             <tr><td style="${labelStyle}">Hours</td><td style="${valueStyle}"><table cellpadding="0" cellspacing="0" border="0"><tr>${buildHourPillsHtml(reqRow.hours, null)}</tr></table></td></tr>
-            <tr><td style="${labelStyle}">Reason</td><td style="${valueStyle}">${reqRow.reason_type}</td></tr>
+            <tr><td style="${labelStyle}">Reason</td><td style="${valueStyle}">${escapeHtml(reqRow.reason_type)}</td></tr>
             <tr><td style="${labelStyle}">Description</td><td style="${valueStyle}text-align:justify;hyphens:auto;-webkit-hyphens:auto;-ms-hyphens:auto;" lang="en">${descriptionHtml}</td></tr>
             <tr><td style="${lastLabelStyle}">Attachment</td><td style="${lastValueStyle}">${attachmentLinkHtml(attachmentUrl)}</td></tr>
           </table>
           <p style="text-align:right;"><a href="${reviewUrl}" target="_blank" style="display:inline-block;background:#0053A1;color:#fff;text-decoration:none;font-weight:600;font-size:12px;border-radius:20px;padding:5px 16px;">Review Request</a></p>
-          <p style="color:#333;">Kind regards,<br>${reqRow.student_name}</p>
+          <p style="color:#333;">Kind regards,<br>${escapeHtml(reqRow.student_name)}</p>
           ${footerHtml}
         </div>`;
 
@@ -276,6 +288,7 @@ Deno.serve(async (req) => {
         .eq("request_id", params.request_id);
       const reqRow = rows?.[0];
       if (!reqRow) throw new Error("Request not found.");
+      if (!isGlobalAdmin && !adminCourses.includes(reqRow.course)) return json({ result: "error", message: "Not authorized for this course." }, 403);
 
       const formattedCourseName = String(reqRow.course || "").replace(/_/g, " ");
       const subject = `Permission Request for ${formattedCourseName}`;
@@ -288,7 +301,7 @@ Deno.serve(async (req) => {
       const dateRow = formattedDate
         ? `<tr><td style="${labelStyle}">Date</td><td style="${valueStyle}">${formattedDate}</td></tr>` : "";
       const reasonRow = reqRow.reason_type
-        ? `<tr><td style="${labelStyle}">Reason</td><td style="${valueStyle}">${reqRow.reason_type}</td></tr>` : "";
+        ? `<tr><td style="${labelStyle}">Reason</td><td style="${valueStyle}">${escapeHtml(reqRow.reason_type)}</td></tr>` : "";
       const descriptionHtml = (reqRow.description && String(reqRow.description).trim())
         ? escapeHtml(reqRow.description).replace(/\n/g, "<br>") : "";
       const descriptionRow = descriptionHtml
@@ -309,15 +322,15 @@ Deno.serve(async (req) => {
           ? `<p style="margin:4px 0 0;font-size:11px;color:#888;">Blue&nbsp;=&nbsp;approved &nbsp;&middot;&nbsp; Grey&nbsp;=&nbsp;not approved</p>` : "";
         const customMessageHtml = customMessage.trim()
           ? `<table cellpadding="0" cellspacing="0" border="0" style="width:100%;margin-bottom:20px;">
-              <tr><td style="background:#f0f7ff;border-left:3px solid #0053A1;padding:10px 14px;font-style:italic;color:#555;font-size:13px;text-align:justify;hyphens:auto;-webkit-hyphens:auto;-ms-hyphens:auto;" lang="en">${customMessage.replace(/\n/g, "<br>")}</td></tr>
+              <tr><td style="background:#f0f7ff;border-left:3px solid #0053A1;padding:10px 14px;font-style:italic;color:#555;font-size:13px;text-align:justify;hyphens:auto;-webkit-hyphens:auto;-ms-hyphens:auto;" lang="en">${escapeHtml(customMessage).replace(/\n/g, "<br>")}</td></tr>
              </table>` : "";
 
         bodyHtml = `
           <div style="font-family:Arial,'Helvetica Neue',Helvetica,sans-serif;font-size:14px;color:#333;line-height:1.6;max-width:600px;">
-            <p style="margin:0 0 16px;">Dear ${firstName},</p>
-            <p style="margin:0 0 20px;">Your permission request for <strong>${formattedCourseName}</strong> has been <strong style="color:${statusColor};">${statusText}</strong>.</p>
+            <p style="margin:0 0 16px;">Dear ${escapeHtml(firstName)},</p>
+            <p style="margin:0 0 20px;">Your permission request for <strong>${escapeHtml(formattedCourseName)}</strong> has been <strong style="color:${statusColor};">${statusText}</strong>.</p>
             <table cellpadding="0" cellspacing="0" border="0" style="width:100%;border:1px solid #e5e5e5;border-radius:6px;margin-bottom:20px;background:#fafafa;cursor:default;">
-              <tr><td style="${labelStyle}">Course</td><td style="${valueStyle}"><strong>${formattedCourseName}</strong>${sessionBadgeHtml(reqRow.session || "")}</td></tr>
+              <tr><td style="${labelStyle}">Course</td><td style="${valueStyle}"><strong>${escapeHtml(formattedCourseName)}</strong>${sessionBadgeHtml(reqRow.session || "")}</td></tr>
               ${dateRow}
               <tr><td style="${labelStyle}">Hours</td><td style="${valueStyle}"><table cellpadding="0" cellspacing="0" border="0"><tr>${buildHourPillsHtml(originalHours, approvedHours)}</tr></table>${partialNote}</td></tr>
               ${reasonRow}
@@ -332,15 +345,15 @@ Deno.serve(async (req) => {
         const rejectionMessage = String(params.rejectionMessage ?? "");
         const rejectionBoxHtml = rejectionMessage.trim()
           ? `<table cellpadding="0" cellspacing="0" border="0" style="width:100%;margin-bottom:20px;">
-              <tr><td style="background:#fdf5f5;border-left:3px solid #c0392b;padding:10px 14px;font-style:italic;color:#555;font-size:13px;text-align:justify;hyphens:auto;-webkit-hyphens:auto;-ms-hyphens:auto;" lang="en">${rejectionMessage.replace(/\n/g, "<br>")}</td></tr>
+              <tr><td style="background:#fdf5f5;border-left:3px solid #c0392b;padding:10px 14px;font-style:italic;color:#555;font-size:13px;text-align:justify;hyphens:auto;-webkit-hyphens:auto;-ms-hyphens:auto;" lang="en">${escapeHtml(rejectionMessage).replace(/\n/g, "<br>")}</td></tr>
              </table>` : "";
 
         bodyHtml = `
           <div style="font-family:Arial,'Helvetica Neue',Helvetica,sans-serif;font-size:14px;color:#333;line-height:1.6;max-width:600px;">
-            <p style="margin:0 0 16px;">Dear ${firstName},</p>
-            <p style="margin:0 0 20px;">Your permission request for <strong>${formattedCourseName}</strong> has <span style="color:#c0392b;font-weight:600;">not been approved</span>.</p>
+            <p style="margin:0 0 16px;">Dear ${escapeHtml(firstName)},</p>
+            <p style="margin:0 0 20px;">Your permission request for <strong>${escapeHtml(formattedCourseName)}</strong> has <span style="color:#c0392b;font-weight:600;">not been approved</span>.</p>
             <table cellpadding="0" cellspacing="0" border="0" style="width:100%;border:1px solid #e5e5e5;border-radius:6px;margin-bottom:20px;background:#fafafa;cursor:default;">
-              <tr><td style="${labelStyle}">Course</td><td style="${valueStyle}"><strong>${formattedCourseName}</strong>${sessionBadgeHtml(reqRow.session || "")}</td></tr>
+              <tr><td style="${labelStyle}">Course</td><td style="${valueStyle}"><strong>${escapeHtml(formattedCourseName)}</strong>${sessionBadgeHtml(reqRow.session || "")}</td></tr>
               ${dateRow}
               <tr><td style="${labelStyle}">Hours</td><td style="${valueStyle}"><table cellpadding="0" cellspacing="0" border="0"><tr>${buildHourPillsHtml(reqRow.hours, "")}</tr></table></td></tr>
               ${reasonRow}
@@ -369,7 +382,7 @@ Deno.serve(async (req) => {
       const email = String(params.email ?? "");
       if (!email) throw new Error("Missing student email.");
       const firstName = name.trim() ? name.split(" ")[0] : "Student";
-      const greeting = name.trim() ? `Dear ${firstName},` : "Dear,";
+      const greeting = name.trim() ? `Dear ${escapeHtml(firstName)},` : "Dear,";
       const signatureHtml = await getSignatureForAdmin(callerEmail);
 
       const bodyHtml = `
@@ -405,9 +418,9 @@ Deno.serve(async (req) => {
 
       const bodyHtml = `
         <div style="font-family:Arial,'Helvetica Neue',Helvetica,sans-serif;font-size:14px;color:#333;line-height:1.6;max-width:600px;">
-          <p style="margin:0 0 16px;">Dear ${firstName},</p>
+          <p style="margin:0 0 16px;">Dear ${escapeHtml(firstName)},</p>
           <table cellpadding="0" cellspacing="0" border="0" style="width:100%;margin-bottom:20px;">
-            <tr><td style="background:#fdf5f5;border-left:3px solid #c0392b;padding:10px 14px;color:#333;text-align:justify;hyphens:auto;-webkit-hyphens:auto;-ms-hyphens:auto;" lang="en">${message.replace(/\n/g, "<br>")}</td></tr>
+            <tr><td style="background:#fdf5f5;border-left:3px solid #c0392b;padding:10px 14px;color:#333;text-align:justify;hyphens:auto;-webkit-hyphens:auto;-ms-hyphens:auto;" lang="en">${escapeHtml(message).replace(/\n/g, "<br>")}</td></tr>
           </table>
           ${signatureHtml}
           ${footerHtml}

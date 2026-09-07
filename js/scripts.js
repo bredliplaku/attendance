@@ -10,7 +10,7 @@ const ATTACHMENTS_BUCKET = 'absence-attachments';
 // Supabase Auth (sessions auto-refresh; the anon key is public-safe ONLY with RLS enabled)
 const SUPABASE_URL = 'https://yeuxwdijlpgfgajjjebj.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlldXh3ZGlqbHBnZmdhampqZWJqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAxNDE4NzYsImV4cCI6MjA5NTcxNzg3Nn0.YvO3Ug023m5Biy-rr0qwafzy1u51-kBOie-eGGu5Y64';
-const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const supabaseClient = typeof supabase !== 'undefined' ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
 // Marks a kiosk (NFC) session so it auto-expires
 const KIOSK_MODE_KEY = 'kiosk_mode';
@@ -29,7 +29,7 @@ let databaseMap = {}; // Map UIDs to {name, email} objects
 let uidToPrimaryUidMap = {};
 let currentSort = localStorage.getItem('logs_sort') || 'date-desc';
 let currentDbSort = localStorage.getItem('db_sort') || 'name-asc';
-let soundEnabled = true; // Sound effects enabled by default
+let soundEnabled = localStorage.getItem('sound_enabled') !== 'false';
 let isSignedIn = false; // User is signed in
 let currentUser = null; // Current user info
 let currentCourse = ''; // Currently selected course
@@ -43,6 +43,8 @@ let criticalErrorsOnly = true;
 let initialSignIn = true; // Flag to track initial sign-in
 let lastScannedUID = null;
 let courseIDMap = {}; // Object to store course information - name to ID mapping
+let courseInfoMap = {};
+let courseDictionary = {};
 let excusedUIDs = new Set();
 let loadingTasks = new Set(['session', 'auth', 'courses', 'database']);
 let cooldownUIDs = new Set();
@@ -59,6 +61,10 @@ let autoSyncInterval = null;
 let autoSyncEnabled = true;
 let lastSyncTime = 0;
 let pendingChanges = false;
+const courseSyncRequests = new Map();
+const protectedCacheKeys = new Set();
+let nfcLoginInProgress = false;
+let storageSaveFailed = false;
 let syncAttempts = 0;
 const MAX_SYNC_ATTEMPTS = 5;
 const SYNC_INTERVAL = 60000; // Auto-sync every 60 seconds
@@ -461,70 +467,7 @@ function generateSessionOptions(selectedValue = '') {
 * @param {boolean} includeInherit - Show "Same as previous".
 * @param {boolean} isCompact - Reduces padding/size for dialogs.
 */
-function renderSessionControls(courseName) {
-    const controls = document.getElementById('session-controls');
 
-    // Hide immediately if not admin
-    if (!isAdmin) {
-        if (controls) controls.style.display = 'none';
-        return;
-    }
-
-    const catGroup = document.getElementById('session-category-group');
-
-    // Safety check
-    if (!courseInfoMap || !courseInfoMap[courseName]) {
-        controls.style.display = 'none';
-        return;
-    }
-
-    const rawSections = courseInfoMap[courseName].availableSections || '';
-    currentCourseSections = parseAvailableSections(rawSections);
-    const categories = Object.keys(currentCourseSections);
-
-    if (categories.length === 0) {
-        controls.style.display = 'none';
-        activeSessionCategory = null;
-        activeSessionGroup = null;
-        return;
-    }
-
-    // 1. Auto-select Category Logic
-    if (!activeSessionCategory || !categories.includes(activeSessionCategory)) {
-        activeSessionCategory = categories[0];
-        activeSessionGroup = null; // Reset group
-    }
-
-    // 2. Render Categories
-    catGroup.innerHTML = '';
-    const icons = { 'theory': 'fa-book', 'lab': 'fa-desktop', 'practice': 'fa-pen-to-square' };
-
-    categories.forEach(cat => {
-        const lowerCat = cat.toLowerCase();
-        const iconClass = icons[lowerCat] || 'fa-tag';
-
-        const btn = document.createElement('div');
-        btn.setAttribute('class', 'course-button');
-        btn.innerHTML = `<i class="fa-solid ${iconClass}"></i>&nbsp; ${cat}`;
-
-        btn.onclick = () => selectSessionCategory(cat);
-
-        if (activeSessionCategory === cat) btn.classList.add('active');
-        catGroup.appendChild(btn);
-    });
-
-    // 3. Render Groups for the active category
-    renderGroupsForCategory(activeSessionCategory);
-
-    // 4. SMART VISIBILITY CHECK
-    const showCategories = categories.length > 1;
-    catGroup.style.display = showCategories ? 'flex' : 'none';
-
-    const grpContainer = document.getElementById('session-group-container');
-    const showGroups = grpContainer.style.display !== 'none';
-
-    controls.style.display = (showCategories || showGroups) ? 'flex' : 'none';
-}
 
 /**
 * Generates Session Toggle Buttons.
@@ -604,92 +547,7 @@ function renderSessionSelectorHTML(prefix, includeInherit = false, isCompact = f
  * @param {string} containerIdPrefix - The prefix used in renderSessionSelectorHTML.
  * @param {Object} sectionsMap - The parsed sections object.
  */
-function setupSessionToggleListeners(containerIdPrefix, sectionsMap) {
-    const wrapper = document.getElementById(`${containerIdPrefix}-session-wrapper`);
-    if (!wrapper) return;
 
-    const input = document.getElementById(`${containerIdPrefix}-selected-session`);
-    const inheritBtn = document.getElementById(`${containerIdPrefix}-btn-inherit`);
-    const catRow = document.getElementById(`${containerIdPrefix}-cat-row`);
-    const groupRows = wrapper.querySelectorAll('.group-row');
-
-    const updateValue = () => {
-        if (inheritBtn && inheritBtn.classList.contains('active')) {
-            input.value = 'INHERIT';
-            return;
-        }
-
-        const activeCat = catRow.querySelector('.course-button.active');
-        if (!activeCat) {
-            input.value = '';
-            return;
-        }
-
-        const catVal = activeCat.dataset.val;
-        const activeGroupRow = document.getElementById(`${containerIdPrefix}-groups-${catVal}`);
-        let groupVal = '';
-
-        if (activeGroupRow) {
-            const activeGrp = activeGroupRow.querySelector('.course-button.active');
-            if (activeGrp) groupVal = activeGrp.dataset.val;
-        }
-
-        // Construct session string (e.g., "Theory A" or just "Theory")
-        input.value = groupVal ? `${catVal} ${groupVal}` : catVal;
-    };
-
-    // 1. Inherit Click
-    if (inheritBtn) {
-        inheritBtn.addEventListener('click', () => {
-            inheritBtn.classList.add('active');
-            // Deactivate all categories
-            catRow.querySelectorAll('.course-button').forEach(b => b.classList.remove('active'));
-            // Hide all groups
-            groupRows.forEach(r => r.style.display = 'none');
-            updateValue();
-        });
-    }
-
-    // 2. Category Click
-    catRow.addEventListener('click', (e) => {
-        const btn = e.target.closest('.course-button');
-        if (!btn) return;
-
-        // Activate Category
-        if (inheritBtn) inheritBtn.classList.remove('active');
-        catRow.querySelectorAll('.course-button').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-
-        const catVal = btn.dataset.val;
-
-        // Show relevant Group Row, hide others
-        groupRows.forEach(row => {
-            if (row.id === `${containerIdPrefix}-groups-${catVal}`) {
-                row.style.display = 'flex';
-                // Auto-select first group if none active
-                if (!row.querySelector('.course-button.active')) {
-                    const first = row.querySelector('.course-button');
-                    if (first) first.classList.add('active');
-                }
-            } else {
-                row.style.display = 'none';
-            }
-        });
-        updateValue();
-    });
-
-    // 3. Group Click
-    groupRows.forEach(row => {
-        row.addEventListener('click', (e) => {
-            const btn = e.target.closest('.course-button');
-            if (!btn) return;
-
-            row.querySelectorAll('.course-button').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            updateValue();
-        });
-    });
-}
 
 /**
  * Attaches event listeners to the generated Session Selector.
@@ -1472,7 +1330,7 @@ function convertUidToExternalId(rawUid) {
     if (typeof rawUid !== 'string' && typeof rawUid !== 'number') return '';
     const s = String(rawUid).trim();
     const bytes = s.split(':');
-    if (bytes.length !== 4 || !bytes.slice(0, 3).every(b => /^[0-9a-fA-F]{2}$/.test(b))) {
+    if (bytes.length !== 4 || !bytes.every(b => /^[0-9a-fA-F]{2}$/.test(b))) {
         return s;
     }
     const decimal = parseInt(bytes[2] + bytes[1] + bytes[0], 16);
@@ -1488,8 +1346,9 @@ function convertExternalIdToUid(id) {
     if (/^[0-9a-fA-F]{2}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}$/.test(cleanId)) {
         return cleanId.toLowerCase();
     }
-    const num = parseInt(cleanId, 10);
-    if (isNaN(num) || num <= 0) return '';
+    if (!/^\d+$/.test(cleanId)) return '';
+    const num = Number(cleanId);
+    if (!Number.isSafeInteger(num) || num <= 0) return '';
     const hex = num.toString(16).padStart(6, '0');
     if (hex.length > 6) return '';
     const b2 = hex.slice(0, 2);
@@ -1527,7 +1386,7 @@ function uidsEquivalent(a, b) {
      * @returns {Array} The array of logs for the current course and user.
      */
 function getLogsForCurrentUser() {
-    if (!currentCourse) return [];
+    if (!isSignedIn || !currentCourse) return [];
     return courseData[currentCourse]?.logs || [];
 }
 
@@ -1740,7 +1599,6 @@ function setupEventListeners() {
     if (addEntryBtn) addEntryBtn.addEventListener('click', showAddEntryDialog);
     if (exportExcelBtn) exportExcelBtn.addEventListener('click', exportDatabaseToExcel);
     if (clearDbBtn) clearDbBtn.addEventListener('click', clearDatabase);
-    if (syncBtn) syncBtn.addEventListener('click', syncData);
     if (loginBtn) {
         // Use direct event listener without arrow function to ensure proper 'this' binding
         loginBtn.addEventListener('click', handleAuthClick);
@@ -1887,7 +1745,9 @@ function setupEventListeners() {
             const activeTab = document.querySelector('.tab.active')?.getAttribute('data-tab');
             const targetRefreshBtnId = (activeTab === 'database-tab') ? 'database-refresh-btn' : 'scanner-refresh-btn';
 
-            if (typeof handleManualRefresh === 'function') {
+            if (isAdmin) {
+                syncData();
+            } else if (typeof handleManualRefresh === 'function') {
                 handleManualRefresh(targetRefreshBtnId);
             } else if (typeof syncData === 'function') {
                 syncData();
@@ -1914,6 +1774,11 @@ function setupEventListeners() {
                 }
             });
             if (mutation.removedNodes && mutation.removedNodes.length > 0) {
+                mutation.removedNodes.forEach(node => {
+                    if (node.nodeType !== 1) return;
+                    const backdrops = node.matches('.dialog-backdrop') ? [node] : node.querySelectorAll('.dialog-backdrop');
+                    backdrops.forEach(backdrop => backdrop.dispatchEvent(new Event('dialogclose')));
+                });
                 syncDialogMode();
                 setTimeout(syncDialogMode, 50);
             }
@@ -2003,6 +1868,7 @@ function confirmCloseDialog(backdropOrDialog, onDismiss) {
             onDismiss();
         }
         if (backdrop && document.body.contains(backdrop)) {
+            backdrop.dispatchEvent(new Event('dialogclose'));
             backdrop.remove();
             closeDialogMode();
         }
@@ -3148,7 +3014,7 @@ function handleRouting() {
         return;
     }
 
-    const hash = window.location.hash.replace('#', '');
+    const hash = getRouteCourse();
 
     // If no hash, go to default course
     if (!hash) {
@@ -3156,7 +3022,7 @@ function handleRouting() {
         if (guestCourse) {
             const oldGuestCourse = guestCourse;
             guestCourse = null;
-            if (courseData[oldGuestCourse]) delete courseData[oldGuestCourse];
+            if (courseData[oldGuestCourse] && !courseData[oldGuestCourse].pending) delete courseData[oldGuestCourse];
             populateCourseButtons();
         }
 
@@ -3182,7 +3048,7 @@ function handleRouting() {
             // We are switching from a guest course to an official one
             const oldGuestCourse = guestCourse;
             guestCourse = null;
-            if (courseData[oldGuestCourse]) delete courseData[oldGuestCourse];
+            if (courseData[oldGuestCourse] && !courseData[oldGuestCourse].pending) delete courseData[oldGuestCourse];
             populateCourseButtons();
         }
         handleCourseChange(hash); // This is an authorized change
@@ -3196,7 +3062,7 @@ function handleRouting() {
         guestCourse = hash; // Set new guest course
 
         // Unload old guest course if it was different
-        if (oldGuestCourse && oldGuestCourse !== hash && courseData[oldGuestCourse]) {
+        if (oldGuestCourse && oldGuestCourse !== hash && courseData[oldGuestCourse] && !courseData[oldGuestCourse].pending) {
             delete courseData[oldGuestCourse];
         }
 
@@ -3311,9 +3177,9 @@ function exportDatabaseToExcel() {
     const entries = Object.entries(databaseMap);
     if (entries.length === 0) return showNotification('warning', 'Export Failed', 'Database is empty.');
 
-    const wsData = [["Name", "UID", "Email"]]; // new header
-    entries.sort((a, b) => a[1].name.localeCompare(b[1].name)).forEach(([uid, data]) => {
-        wsData.push([data.name, uid, data.email || '']);
+    const wsData = [["Name", "UID", "Email"]];
+    entries.filter(([, data]) => !data.isStaff).sort((a, b) => a[1].name.localeCompare(b[1].name)).forEach(([, data]) => {
+        (data.uids || []).forEach(uid => wsData.push([data.name, String(uid), data.email || '']));
     });
 
     const worksheet = XLSX.utils.aoa_to_sheet(wsData);
@@ -3397,104 +3263,50 @@ function setupThemeToggle() {
 
 // New function to setup the enhanced sync button
 function setupEnhancedSyncButton() {
-    const syncBtn = document.getElementById('sync-btn');
+    syncBtn = document.getElementById('sync-btn');
     if (!syncBtn) return;
-
-    // Restore auto-sync preference from localStorage
-    const savedPref = localStorage.getItem('auto_sync_enabled');
-    if (savedPref !== null) {
-        autoSyncEnabled = savedPref === 'true';
-    }
-
-    // Update button appearance
+    autoSyncEnabled = localStorage.getItem('auto_sync_enabled') !== 'false';
     updateSyncButton();
-
-    // Clear any existing event listeners (optional, but helps prevent duplicates)
-    const newSyncBtn = syncBtn.cloneNode(true);
-    syncBtn.parentNode.replaceChild(newSyncBtn, syncBtn);
-
-    // Add long-press functionality to toggle auto-sync
     let pressTimer;
-    let isLongPress = false;
-
-    newSyncBtn.addEventListener('mousedown', function (e) {
-        isLongPress = false;
-        pressTimer = setTimeout(function () {
-            isLongPress = true;
-
-            // Toggle auto-sync on long press
+    let longPress = false;
+    const cancelPress = () => clearTimeout(pressTimer);
+    syncBtn.addEventListener('pointerdown', event => {
+        if (event.button !== 0) return;
+        longPress = false;
+        cancelPress();
+        pressTimer = setTimeout(() => {
+            longPress = true;
             autoSyncEnabled = !autoSyncEnabled;
-            localStorage.setItem('auto_sync_enabled', autoSyncEnabled.toString());
-
-            // Show notification
-            if (autoSyncEnabled) {
-                showNotification('success', 'Auto-Sync Enabled',
-                    'Changes will sync automatically when online');
-
-                // Try to sync immediately if we have pending changes
-                if (pendingChanges && isOnline && isSignedIn) {
-                    setTimeout(autoSyncData, 1000);
-                }
-            } else {
-                showNotification('info', 'Auto-Sync Disabled',
-                    'You will need to manually sync changes');
-            }
-
-            // Update the button appearance
+            localStorage.setItem('auto_sync_enabled', String(autoSyncEnabled));
             updateSyncButton();
-        }, 800); // Long press duration - 800ms
-    });
-
-    // Clear timer on mouse up
-    newSyncBtn.addEventListener('mouseup', function () {
-        clearTimeout(pressTimer);
-
-        // Only trigger sync on short press
-        if (!isLongPress) {
-            syncData();
-        }
-    });
-
-    // Clear timer when mouse leaves the button
-    newSyncBtn.addEventListener('mouseleave', function () {
-        clearTimeout(pressTimer);
-    });
-
-    // Handle touch events for mobile
-    newSyncBtn.addEventListener('touchstart', function (e) {
-        isLongPress = false;
-        pressTimer = setTimeout(function () {
-            isLongPress = true;
-
-            // Toggle auto-sync on long press
-            autoSyncEnabled = !autoSyncEnabled;
-            localStorage.setItem('auto_sync_enabled', autoSyncEnabled.toString());
-
-            // Show notification
-            if (autoSyncEnabled) {
-                showNotification('success', 'Auto-Sync Enabled',
-                    'Changes will sync automatically when online');
-            } else {
-                showNotification('info', 'Auto-Sync Disabled',
-                    'You will need to manually sync changes');
-            }
-
-            // Update the button appearance
-            updateSyncButton();
+            showNotification('info', autoSyncEnabled ? 'Auto-Sync Enabled' : 'Auto-Sync Disabled',
+                autoSyncEnabled ? 'Changes will sync automatically when online.' : 'Use the sync button to upload changes.');
+            if (autoSyncEnabled && pendingChanges) autoSyncData();
         }, 800);
     });
-
-    newSyncBtn.addEventListener('touchend', function (e) {
-        clearTimeout(pressTimer);
-
-        // Only trigger sync on short touch
-        if (!isLongPress) {
-            syncData();
-        }
-
-        // Prevent additional click events
-        e.preventDefault();
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach(event => syncBtn.addEventListener(event, cancelPress));
+    syncBtn.addEventListener('click', () => {
+        if (!longPress) syncData();
+        longPress = false;
     });
+    syncBtn.title = 'Sync changes (Ctrl+S). Hold to toggle automatic sync.';
+    syncBtn.setAttribute('aria-label', 'Sync attendance changes');
+}
+
+function setupSoundToggle() {
+    const button = document.getElementById('sound-toggle-btn');
+    if (!button) return;
+    const render = () => {
+        button.setAttribute('aria-pressed', String(soundEnabled));
+        button.title = soundEnabled ? 'Mute scan sounds' : 'Enable scan sounds';
+        button.innerHTML = '<i class="fa-solid ' + (soundEnabled ? 'fa-volume-high' : 'fa-volume-xmark') + '"></i>';
+    };
+    button.addEventListener('click', () => {
+        soundEnabled = !soundEnabled;
+        localStorage.setItem('sound_enabled', String(soundEnabled));
+        render();
+    });
+    render();
 }
 
 /**
@@ -3507,14 +3319,6 @@ function invalidateDatabaseCache() {
 
 // Add this function to implement auto-save and auto-sync
 function setupAutoSync() {
-    // Always save changes to localStorage immediately when logs change
-    const originalAddLog = handleNfcReading;
-    handleNfcReading = async function (event) {
-        await originalAddLog.call(this, event);
-        pendingChanges = true;
-        saveLogsToLocalStorage(); // Save immediately after any change
-    };
-
     // Setup auto-sync interval
     if (autoSyncInterval) {
         clearInterval(autoSyncInterval);
@@ -3572,16 +3376,16 @@ async function autoSyncData() {
         await syncLogsWithSheet();
 
         // Reset state after successful sync
-        pendingChanges = false;
+        refreshPendingChanges();
         lastSyncTime = Date.now();
         syncAttempts = 0;
         const now = new Date();
         const time = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
-        updateSyncStatus(`Synced (${time})`, "success");
+        updateSyncStatus(pendingChanges ? 'Pending sync...' : `Synced (${time})`, pendingChanges ? 'waiting' : 'success');
 
         // Hide success indication after a few seconds
         setTimeout(() => {
-            if (!pendingChanges) {
+            if (!pendingChanges && isOnline && !isSyncing) {
                 updateSyncStatus("Online", "online");
             }
         }, 3000);
@@ -4024,6 +3828,7 @@ function init() {
     cleanupOldLocalStorage();
 
     setupThemeToggle();
+    setupSoundToggle();
 
     setupCatCompanion();
 
@@ -4096,21 +3901,6 @@ function init() {
 
     // Handle auth redirect
 
-    // Override syncLogsWithSheet to track sync status
-    const originalSyncLogs = syncLogsWithSheet;
-    syncLogsWithSheet = async function () {
-        try {
-            await originalSyncLogs.call(this);
-
-            // On successful sync, update the last sync time in localStorage
-            localStorage.setItem(`${LOGS_STORAGE_KEY}_${currentCourse}_last_sync`, Date.now().toString());
-            pendingChanges = false;
-
-            return true;
-        } catch (error) {
-            throw error;
-        }
-    };
     // Auto-start disabled for security - user must manually start scanning
     // if (nfcSupported) {
     //     startScanning();
@@ -4217,7 +4007,7 @@ async function initGoogleApi() {
         if (originalHash !== null) {
             sessionStorage.removeItem('redirect_hash');
             if (history.replaceState) {
-                history.replaceState(null, null, window.location.pathname + originalHash);
+                history.replaceState(null, null, window.location.pathname + window.location.search + originalHash);
             }
         }
 
@@ -4228,16 +4018,18 @@ async function initGoogleApi() {
             oneTapRawNonce = crypto.randomUUID();
             const hashedNonce = await sha256Hex(oneTapRawNonce);
 
-            google.accounts.id.initialize({
-                client_id: CLIENT_ID,
-                callback: handleOneTapResponse,
-                nonce: hashedNonce,
-                auto_select: true, // Auto-signin returning users
-                cancel_on_tap_outside: false,
-                use_fedcm_for_prompt: true
-            });
+            if (typeof google !== 'undefined' && google.accounts?.id) {
+                google.accounts.id.initialize({
+                    client_id: CLIENT_ID,
+                    callback: handleOneTapResponse,
+                    nonce: hashedNonce,
+                    auto_select: true, // Auto-signin returning users
+                    cancel_on_tap_outside: false,
+                    use_fedcm_for_prompt: true
+                });
 
-            google.accounts.id.prompt();
+                google.accounts.id.prompt();
+            }
 
             isInitializing = false;
             showMainContent();
@@ -4335,13 +4127,13 @@ async function onSuccessfulAuth(isRestore = false) {
             courseDictionary = filteredDict;
 
             // Determine which course to show first
-            const hashCourse = window.location.hash.replace('#', '');
+            const hashCourse = getRouteCourse();
             const lastActiveCourse = localStorage.getItem('last_active_course');
 
             if (hashCourse) {
                 if (availableCourses.includes(hashCourse)) {
                     currentCourse = hashCourse;
-                } else if (isGlobalAdmin) {
+                } else if (isGlobalAdmin && bootData.courseInfo?.[hashCourse]) {
                     currentCourse = hashCourse;
                     guestCourse = hashCourse;
                 } else {
@@ -4455,50 +4247,52 @@ async function onSuccessfulAuth(isRestore = false) {
  * Saves the data for a single, specified course to local storage.
  * @param {string} courseName - The name of the course to save.
  */
-function saveCourseToLocalStorage(courseName) {
-    if (!courseName || !courseData[courseName]) return;
+function courseStorageKey(courseName) {
+    const account = (currentUser?.email || '').trim().toLowerCase();
+    const scope = isAdmin && isAdminForCourse(courseName) ? 'admin' : 'student';
+    return account ? LOGS_STORAGE_KEY + '_account_' + encodeURIComponent(account) + '_' + scope + '_' + courseName : null;
+}
 
-    const storageKey = `${LOGS_STORAGE_KEY}_${courseName}`;
+function refreshPendingChanges() {
+    pendingChanges = Object.values(courseData).some(data => data.pending === true);
+    return pendingChanges;
+}
+
+function saveCourseToLocalStorage(courseName) {
+    const data = courseData[courseName];
+    const storageKey = courseStorageKey(courseName);
+    if (!storageKey || !data) return false;
     try {
-        const dataToSave = {
-            logs: courseData[courseName].logs,
-            tombstones: Array.from(courseData[courseName].tombstones) // Convert Set to Array for JSON
-        };
-        localStorage.setItem(storageKey, JSON.stringify(dataToSave));
-        localStorage.setItem(`${storageKey}_timestamp`, Date.now().toString());
-    } catch (e) {
-        console.error(`Error saving course ${courseName} to localStorage:`, e);
+        if (protectedCacheKeys.has(storageKey)) throw new Error('Unreadable cache could not be backed up.');
+        localStorage.setItem(storageKey, JSON.stringify({
+            logs: data.logs,
+            tombstones: Array.from(data.tombstones || []),
+            pending: data.pending === true,
+            revision: data.revision || 0,
+            savedAt: Date.now()
+        }));
+        return true;
+    } catch (error) {
+        console.error('Could not save attendance on this device:', error);
+        if (!storageSaveFailed) {
+            showNotification('error', 'Local Save Failed', 'Keep this page open and sync or export your logs. Device storage is full or unavailable.', 0);
+        }
+        storageSaveFailed = true;
+        return false;
     }
 }
 
 // Helper function to clean up old localStorage data
 function cleanupOldLocalStorage() {
-    const keysToCheck = [];
-    const now = Date.now();
-    const ONE_MONTH = 30 * 24 * 60 * 60 * 1000;
-
-    // Find all attendance log keys
-    for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key && key.startsWith(LOGS_STORAGE_KEY)) {
-            keysToCheck.push(key);
-        }
+    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    for (const key of Object.keys(localStorage)) {
+        if (!key.startsWith(LOGS_STORAGE_KEY + '_account_')) continue;
+        try {
+            const data = JSON.parse(localStorage.getItem(key));
+            // Legacy caches have no reliable dirty marker; never discard them here.
+            if (data.pending === false && !data.tombstones?.length && data.savedAt < cutoff) localStorage.removeItem(key);
+        } catch { /* Keep unrecognised data available for recovery. */ }
     }
-
-    // Remove old data
-    keysToCheck.forEach(key => {
-        const timestampKey = `${key}_timestamp`;
-        const timestamp = localStorage.getItem(timestampKey);
-
-        if (timestamp) {
-            const age = now - parseInt(timestamp);
-            if (age > ONE_MONTH) {
-                console.log(`Removing old data for key: ${key} (${Math.floor(age / (24 * 60 * 60 * 1000))} days old)`);
-                localStorage.removeItem(key);
-                localStorage.removeItem(timestampKey);
-            }
-        }
-    });
 }
 
 
@@ -4566,8 +4360,10 @@ function showRegisterUIDDialog() {
 
     // Start scanning if supported
     if (nfcSupported) {
+        if (isScanning || nfcReader) stopScanning();
         nfcStatusContainer.innerHTML = `<div class="sync-status syncing" style="justify-content: center; padding: 30px 0; font-size: 1em; color: var(--primary-color);"><i class="fa-solid fa-wifi"></i> <span>Ready to Scan...</span></div>`;
         registrationNfcController = new AbortController();
+        dialogBackdrop.addEventListener('dialogclose', () => registrationNfcController.abort(), { once: true });
         const reader = new NDEFReader();
         reader.scan({ signal: registrationNfcController.signal }).then(() => {
             reader.onreading = ({ serialNumber }) => {
@@ -5059,7 +4855,7 @@ function attachRegistrationRowListeners() {
 /**
  * Shows a dialog with all details for a registration request.
  */
-function showRegistrationDetailsDialog(data) {
+function showRegistrationDetailsDialog(data, isReadOnly = false) {
     openDialogMode();
 
     const dialogBackdrop = document.createElement('div');
@@ -5134,17 +4930,17 @@ function showRegistrationDetailsDialog(data) {
     dialog.querySelector('#cancel-details-btn').addEventListener('click', closeDialog);
 
     // These buttons just call the *existing* dialog functions
-    dialog.querySelector('#approve-details-btn').addEventListener('click', () => {
+    dialog.querySelector('#approve-details-btn')?.addEventListener('click', () => {
         closeDialog();
         showApproveDialog(data); // data = { rowNumber, name, uid, email }
     });
 
-    dialog.querySelector('#reject-details-btn').addEventListener('click', () => {
+    dialog.querySelector('#reject-details-btn')?.addEventListener('click', () => {
         closeDialog();
         showRejectDialog(data); // data = { rowNumber, name, email }
     });
 
-    dialog.querySelector('#delete-details-btn').addEventListener('click', () => {
+    dialog.querySelector('#delete-details-btn')?.addEventListener('click', () => {
         closeDialog();
         showDeleteDialog(data); // data = { rowNumber, name }
     });
@@ -6935,9 +6731,22 @@ async function sbGetCourseInfo() {
     return sbMapCourseInfo(rows);
 }
 
+// Read every page so a large roster or course is not silently truncated.
+// The factory supplies a fresh, deterministically ordered query for each page.
+async function sbSelectAll(queryFactory) {
+    const rows = [];
+    const pageSize = 1000;
+    for (let offset = 0; ; ) {
+        const page = sbUnwrap(await queryFactory().range(offset, offset + pageSize - 1)) || [];
+        if (page.length === 0) return rows;
+        rows.push(...page);
+        offset += page.length;
+    }
+}
+
 async function sbGetDatabase() {
-    const studentRes = await supabaseClient.from('students').select('id,name,email,uids,hardware_uids');
-    const studentRows = sbUnwrap(studentRes) || [];
+    const studentRows = await sbSelectAll(() => supabaseClient.from('students')
+        .select('id,name,email,uids,hardware_uids').order('id'));
 
     let staffRows = [];
     try {
@@ -7018,8 +6827,8 @@ async function sbGetAvailableCourses(adminStatus) {
     // Student path: courses where they have attendance logs
     const uids = await sbGetMyUids();
     if (uids.length === 0) return result;
-    const rows = sbUnwrap(await supabaseClient.from('attendance_logs')
-        .select('course_name').in('uid', uids));
+    const rows = await sbSelectAll(() => supabaseClient.from('attendance_logs')
+        .select('course_name').in('uid', uids).order('log_id'));
     (rows || []).forEach(log => { if (log.course_name) result[log.course_name] = true; });
     return result;
 }
@@ -7055,11 +6864,11 @@ async function callSupabase(action, payload = {}) {
 
         case 'getCourseLogs_Admin': {
             const [tombstoneRows, logRows] = await Promise.all([
-                supabaseClient.from('deleted_logs')
-                    .select('log_id,deleted_at').eq('course_name', courseName).then(sbUnwrap),
-                supabaseClient.from('attendance_logs')
+                sbSelectAll(() => supabaseClient.from('deleted_logs')
+                    .select('log_id,deleted_at').eq('course_name', courseName).order('log_id')),
+                sbSelectAll(() => supabaseClient.from('attendance_logs')
                     .select('uid,timestamp,log_id,manual,version,updated_at,updated_by,session')
-                    .eq('course_name', courseName).then(sbUnwrap)
+                    .eq('course_name', courseName).order('log_id'))
             ]);
 
             const deletedMap = {};
@@ -7093,9 +6902,9 @@ async function callSupabase(action, payload = {}) {
         case 'getStudentLogs': {
             const uids = await sbGetMyUids();
             if (uids.length === 0) return [];
-            const rows = sbUnwrap(await supabaseClient.from('attendance_logs')
+            const rows = await sbSelectAll(() => supabaseClient.from('attendance_logs')
                 .select('uid,timestamp,log_id,manual,updated_by,session')
-                .in('uid', uids).eq('course_name', courseName));
+                .in('uid', uids).eq('course_name', courseName).order('log_id'));
             return (rows || []).map(row => ({
                 uid: row.uid,
                 timestamp: new Date(row.timestamp).getTime(),
@@ -7565,16 +7374,21 @@ function startNfcForInputDialog(inputElement, statusContainer, scanButton) {
         window.activeNfcController.abort();
     }
 
-    inputElement.addEventListener('input', () => { delete inputElement.dataset.hardwareUid; });
+    if (isScanning || nfcReader) stopScanning();
 
     const nfcController = new AbortController();
+    window.activeNfcController = nfcController;
+    inputElement.closest('.dialog-backdrop')?.addEventListener('dialogclose', () => nfcController.abort(), { once: true });
+    nfcController.signal.addEventListener('abort', () => {
+        if (window.activeNfcController === nfcController) window.activeNfcController = null;
+    }, { once: true });
     const reader = new NDEFReader();
 
     reader.scan({ signal: nfcController.signal }).then(() => {
         reader.onreading = ({ serialNumber }) => {
-            inputElement.dataset.hardwareUid = serialNumber;
             inputElement.value = serialNumber;
             inputElement.dispatchEvent(new Event('input', { bubbles: true }));
+            inputElement.dataset.hardwareUid = serialNumber;
             playSound(true);
             statusContainer.innerHTML = `<div class="sync-status success" style="justify-content: center; padding: 15px 0; font-size: 1em;"><i class="fa-solid fa-circle-check"></i> <span>Card Scanned!</span></div>`;
 
@@ -7594,7 +7408,7 @@ function startNfcForInputDialog(inputElement, statusContainer, scanButton) {
         if (err.name !== 'AbortError') {
             statusContainer.innerHTML = `<div class="sync-status error" style="justify-content: center; padding: 15px 0; font-size: 1em;"><i class="fa-solid fa-circle-xmark"></i> <span>Scan failed. Is NFC on?</span></div>`;
         }
-        window.activeNfcController = null; // Clean up on error
+        if (window.activeNfcController === nfcController) window.activeNfcController = null;
     });
 
     return nfcController;
@@ -8079,48 +7893,34 @@ function updateAuthUI() {
  */
 async function handleCourseChange(courseName) {
     if (currentCourse === courseName) return;
-
     isChangingCourses = true;
     currentCourse = courseName;
-    localStorage.setItem('last_active_course', currentCourse);
-
-    // Show skeletons
+    logsCurrentPage = 1;
+    selectedLogIds.clear();
+    lastCheckedLogId = null;
+    updateBulkUI();
+    cooldownUIDs.clear();
+    localStorage.setItem('last_active_course', courseName);
+    renderSessionControls(courseName);
     renderTableSkeletons();
     document.getElementById('empty-logs').style.display = 'none';
-
-    // Use the safe loader
-    await loadAndMergeCourseData(courseName);
-
-    updateUI();
+    try {
+        await loadAndMergeCourseData(courseName);
+    } finally {
+        if (currentCourse === courseName) {
+            isChangingCourses = false;
+            updateUI();
+        }
+    }
 }
 
 /**
  * Background loads remaining logs for a Course Admin... SLOWLY, to avoid rate-limits.
  */
 async function loadRemainingCourseAdminLogs() {
-    const remainingCourses = availableCourses.filter(c => c !== currentCourse);
-
-    // Use a standard for loop so we can 'await' inside it
-    for (let i = 0; i < remainingCourses.length; i++) {
-        const course = remainingCourses[i];
-        try {
-            // Check if already in cache (in case of fast-switching)
-            if (!studentLogCache[course]) {
-                // Await the fetch for this single course
-                const serverLogs = await callWebApp('getCourseLogs_Admin', { courseName: course }, 'POST');
-                studentLogCache[course] = serverLogs;
-                courseData[course] = { logs: serverLogs, tombstones: new Set() };
-            }
-
-            // Wait 1.5 seconds before fetching the next course.
-            // This respects the Google Apps Script rate limit.
-            await sleep(1500);
-
-        } catch (err) {
-            console.error(`Failed to background load logs for ${course}:`, err);
-            // If one fails, wait a bit and try the next one
-            await sleep(1500);
-        }
+    for (const course of availableCourses.filter(c => c !== currentCourse)) {
+        if (!isSignedIn) return;
+        if (!studentLogCache[course]) await loadAndMergeCourseData(course);
     }
 }
 
@@ -8128,18 +7928,9 @@ async function loadRemainingCourseAdminLogs() {
  * Background loads remaining logs for a Student
  */
 async function loadRemainingStudentLogs() {
-    const remainingCourses = availableCourses.filter(c => c !== currentCourse);
-    for (const course of remainingCourses) {
-        try {
-            // Check if already in cache (in case of fast-switching)
-            if (!studentLogCache[course]) {
-                const serverLogs = await callWebApp('getStudentLogs', { courseName: course }, 'POST');
-                studentLogCache[course] = serverLogs;
-                courseData[course] = { logs: serverLogs, tombstones: new Set() };
-            }
-        } catch (err) {
-            console.error(`Failed to background load logs for ${course}:`, err);
-        }
+    for (const course of availableCourses.filter(c => c !== currentCourse)) {
+        if (!isSignedIn) return;
+        if (!studentLogCache[course]) await loadAndMergeCourseData(course);
     }
 }
 
@@ -8149,31 +7940,63 @@ async function loadRemainingStudentLogs() {
  * @returns {Promise<{logs: Array, tombstones: Set}>}
  */
 async function loadCourseFromLocalStorage(courseName) {
-    const storageKey = `${LOGS_STORAGE_KEY}_${courseName}`;
+    const empty = () => ({ logs: [], tombstones: new Set(), pending: false, revision: 0 });
+    if (!isSignedIn || !currentUser) return empty();
+    const storageKey = courseStorageKey(courseName);
+    let rawData;
     try {
-        const rawData = localStorage.getItem(storageKey);
-        if (!rawData) return { logs: [], tombstones: new Set() };
-
-        const parsedData = JSON.parse(rawData);
-        return {
-            logs: parsedData.logs || [],
-            tombstones: new Set(parsedData.tombstones || [])
+        rawData = localStorage.getItem(storageKey);
+        let legacy = false;
+        // Only an authorized admin may recover the old shared cache.
+        if (!rawData && isAdmin && isAdminForCourse(courseName)) {
+            rawData = localStorage.getItem(LOGS_STORAGE_KEY + '_' + courseName);
+            legacy = !!rawData;
+        }
+        if (!rawData) return empty();
+        const parsed = JSON.parse(rawData);
+        if (!parsed || !Array.isArray(parsed.logs)) throw new Error('Invalid cached log structure.');
+        const writable = isAdmin && isAdminForCourse(courseName);
+        const data = {
+            logs: normalizeImportedLogs(parsed.logs),
+            tombstones: new Set(writable && Array.isArray(parsed.tombstones) ? parsed.tombstones.map(String) : []),
+            pending: writable && (legacy || parsed.pending === true || !!parsed.tombstones?.length),
+            revision: Number(parsed.revision) || 0
         };
-    } catch (e) {
-        console.warn(`Failed to restore logs for ${courseName} from localStorage:`, e);
-        return { logs: [], tombstones: new Set() };
+        return data;
+    } catch (error) {
+        if (rawData) {
+            try { localStorage.setItem('attendance_cache_recovery_' + storageKey, rawData); }
+            catch { protectedCacheKeys.add(storageKey); }
+        }
+        console.warn('Could not restore course cache:', error);
+        showNotification('warning', 'Local Data Unavailable', 'Saved logs could not be read. The original cache has been kept; reconnect to reload server data.');
+        return empty();
     }
 }
 
 // Add this to track authentication state better
 function setupAuthStateTracking() {
+    if (!supabaseClient) return;
     // Kiosk sessions end via the auto-destruct timer; skip the expiry warning
-    if (localStorage.getItem(KIOSK_MODE_KEY)) return;
+    // Track kiosk sign-outs as well as Google sessions.
 
     // React only if the session is lost for good (supabase-js auto-refreshes)
     supabaseClient.auth.onAuthStateChange((event) => {
         if (event === 'SIGNED_OUT' && isSignedIn) {
             isSignedIn = false;
+            isAdmin = false;
+            isGlobalAdmin = false;
+            adminCourses = [];
+            currentUser = null;
+            currentCourse = '';
+            courseData = {};
+            databaseMap = {};
+            databaseCache = null;
+            studentLogCache = {};
+            availableCourses = [];
+            refreshPendingChanges();
+            stopScanning();
+            stopAdminAutoRefresh();
             showNotification('warning', 'Session Expired', 'Please sign in again to continue.');
             updateAuthUI();
         }
@@ -8367,119 +8190,31 @@ function updateOnlineStatus() {
  */
 async function syncData() {
     if (!isOnline || !isSignedIn || isSyncing) return;
-
+    const courseName = currentCourse;
+    const button = document.getElementById('sync-btn');
     isSyncing = true;
-    const syncBtn = document.getElementById('sync-btn');
-    const syncIcon = syncBtn.querySelector('i, svg');
-    if (syncIcon) syncIcon.classList.add('spin-animation');
-    syncBtn.disabled = true;
-
+    button.disabled = true;
+    updateSyncStatus('Syncing...', 'syncing');
     try {
         invalidateDatabaseCache();
-
-        // --- Step 1: Sync Database ---
-        try {
-            await fetchDatabaseFromSheet();
-            window.buildUIDToPrimaryUidMap();
-        } catch (dbError) {
-            console.error('Database sync error:', dbError);
-            showNotification('error', 'Sync Paused', 'Database connection unstable. Local data preserved.');
-            // CRITICAL: Abort sync to protect data integrity, 
-            // BUT keep isSyncing=false so user can try again.
-            // Do NOT clear local logs.
-            isSyncing = false;
-            updateSyncStatus("Sync failed", "error");
-            if (syncIcon) syncIcon.classList.remove('spin-animation');
-            syncBtn.disabled = false;
-            return;
+        await fetchDatabaseFromSheet();
+        window.buildUIDToPrimaryUidMap();
+        await fetchCourseInfo();
+        if (courseName) await loadAndMergeCourseData(courseName, { strict: true });
+        if (isAdmin) {
+            await syncLogsWithSheet();
+            await refreshAdminViews();
         }
-
-        // --- Step 2: Course Info ---
-        try { await fetchCourseInfo(); } catch (e) { }
-
-        // --- Step 3: Sync Logs ---
-        if (currentCourse && isSignedIn) {
-            updateSyncStatus("Syncing...", "syncing");
-
-            // 1. RELOAD DISK (Ensure we have the latest local state)
-            const localData = await loadCourseFromLocalStorage(currentCourse);
-
-            // 2. PULL SERVER
-            let serverLogs = [];
-            let serverTombstoneMap = new Map();
-            try {
-                if (isAdmin) {
-                    const response = await callWebApp('getCourseLogs_Admin', { courseName: currentCourse }, 'POST');
-                    if (response && response.logs) {
-                        serverLogs = response.logs;
-                        if (response.tombstones && Array.isArray(response.tombstones)) {
-                            response.tombstones.forEach(t => {
-                                if (typeof t === 'object') serverTombstoneMap.set(t.id, t.deletedAt);
-                                else serverTombstoneMap.set(t, Date.now());
-                            });
-                        }
-                    } else {
-                        serverLogs = Array.isArray(response) ? response : [];
-                    }
-                } else {
-                    serverLogs = await callWebApp('getStudentLogs', { courseName: currentCourse }, 'POST');
-                }
-            } catch (pullErr) {
-                throw new Error("Could not reach server to pull logs.");
-            }
-
-            // 3. MERGE
-            const mergedLogs = mergeLogs(serverLogs, localData.logs, localData.tombstones, serverTombstoneMap);
-
-            // Update state immediately so UI reflects merge
-            courseData[currentCourse] = {
-                logs: mergedLogs,
-                tombstones: localData.tombstones
-            };
-            saveCourseToLocalStorage(currentCourse);
-
-            // 4. PUSH (Only if Admin)
-            // Note: We push the MERGED logs. 
-            if (isAdmin && pendingChanges) {
-                try {
-                    if (isGlobalAdmin) {
-                        await syncLogsWithSheet();
-                        courseData[currentCourse].tombstones.clear();
-                    } else {
-                        await syncViaBackendAPI();
-                    }
-
-                    pendingChanges = false;
-                    lastSyncTime = Date.now();
-                    // Save the "Clean" state
-                    saveCourseToLocalStorage(currentCourse);
-
-                } catch (pushError) {
-                    console.error("Push failed:", pushError);
-                    // Keep pendingChanges = true so we try again later
-                    pendingChanges = true;
-                    throw new Error("Changes saved locally but upload failed.");
-                }
-            }
-        }
-
-        if (isAdmin) await refreshAdminViews();
-
-        updateSyncStatus("Synced", "success");
-        setTimeout(() => {
-            if (!pendingChanges && isOnline) updateSyncStatus("Online", "online");
-        }, 3000);
-
+        lastSyncTime = Date.now();
+        refreshPendingChanges();
+        updateSyncStatus(pendingChanges ? 'Pending sync...' : 'Synced', pendingChanges ? 'waiting' : 'success');
     } catch (error) {
         console.error('Sync error:', error);
-        updateSyncStatus("Sync failed", "error");
-        if (!error.message.includes('Database connection unstable')) {
-            showNotification('warning', 'Offline Mode', 'Could not sync. Data saved locally.');
-        }
+        updateSyncStatus('Sync failed', 'error');
+        showNotification('warning', 'Sync Failed', 'Your pending changes are kept on this device. Reconnect and try again.');
     } finally {
         isSyncing = false;
-        if (syncIcon) syncIcon.classList.remove('spin-animation');
-        syncBtn.disabled = !isSignedIn || !isOnline;
+        button.disabled = !isSignedIn || !isOnline;
         updateUI();
     }
 }
@@ -8538,7 +8273,7 @@ function getCurrentActiveSession() {
 * @returns {object} The updated log object.
 */
 function touchLogForEdit(log, userEmail) {
-    log.version = (log.version || 0) + 1;
+    log.version = (Number(log.version) || 0) + 1;
     log.updatedAt = Date.now();
     if (userEmail) log.updatedBy = userEmail;
     return log;
@@ -8549,67 +8284,38 @@ function touchLogForEdit(log, userEmail) {
  * Safely loads logs by prioritizing local data first.
  * Ensures offline scans appear immediately and are not wiped by an empty server response.
  */
-async function loadAndMergeCourseData(courseName) {
-    if (!courseName) return;
-
+async function loadAndMergeCourseData(courseName, { strict = false } = {}) {
+    if (!courseName || !isSignedIn) return;
+    const account = currentUser?.email;
+    const requestId = ++currentRequestId;
+    activeRequests.set(courseName, requestId);
     const localData = await loadCourseFromLocalStorage(courseName);
-
-    // Initial render with local data
-    courseData[courseName] = {
-        logs: localData.logs || [],
-        tombstones: localData.tombstones || new Set()
-    };
-
-    if (isOnline && isSignedIn) {
-        try {
-            let serverLogs = [];
-            // Map<LogID, DeletedAtTimestamp>
-            let serverTombstoneMap = new Map();
-
-            if (isAdmin) {
-                const response = await callWebApp('getCourseLogs_Admin', { courseName: courseName }, 'POST');
-
-                if (response.logs) {
-                    serverLogs = response.logs;
-
-                    // Parse the new {id, deletedAt} object format
-                    if (response.tombstones && Array.isArray(response.tombstones)) {
-                        response.tombstones.forEach(t => {
-                            // If t is an object {id, deletedAt}, map it. 
-                            // If it's a string (legacy), default timestamp to now (safer to assume recent deletion)
-                            if (typeof t === 'object') {
-                                serverTombstoneMap.set(t.id, t.deletedAt);
-                            } else {
-                                serverTombstoneMap.set(t, Date.now());
-                            }
-                        });
-                    }
-                } else {
-                    serverLogs = response;
-                }
-            } else {
-                // Students have no local pending writes — use server data as source of truth
-                // to avoid stale admin-fetched logs in localStorage leaking into the student view.
-                serverLogs = await callWebApp('getStudentLogs', { courseName: courseName }, 'POST');
-                courseData[courseName].logs = Array.isArray(serverLogs) ? serverLogs : [];
-                saveCourseToLocalStorage(courseName);
-                return;
-            }
-
-            // Merge using the Map (admin-only path)
-            const mergedLogs = mergeLogs(serverLogs, localData.logs, localData.tombstones, serverTombstoneMap);
-
-            courseData[courseName].logs = mergedLogs;
-
-            // Clean up local tombstones.
-            // If the server confirms deletion (via tombstoneMap), we can stop tracking it locally.
-            serverTombstoneMap.forEach((_, id) => courseData[courseName].tombstones.delete(id));
-
-            saveCourseToLocalStorage(courseName);
-
-        } catch (err) {
-            console.warn(`Background fetch failed for ${courseName}.`, err);
+    if (!isSignedIn || currentUser?.email !== account) return;
+    // A scan can arrive while storage or the server is loading. Keep the live state.
+    if (!courseData[courseName]) courseData[courseName] = localData;
+    refreshPendingChanges();
+    if (!isOnline) return;
+    try {
+        const writable = isAdmin && isAdminForCourse(courseName);
+        const response = await callWebApp(writable ? 'getCourseLogs_Admin' : 'getStudentLogs', { courseName });
+        if (!isSignedIn || currentUser?.email !== account || activeRequests.get(courseName) !== requestId) return;
+        const data = courseData[courseName];
+        if (writable) {
+            const tombstones = new Map((response.tombstones || []).map(t => typeof t === 'object' ? [String(t.id), t.deletedAt] : [String(t), Date.now()]));
+            data.logs = mergeLogs(Array.isArray(response) ? response : response.logs, data.logs, data.tombstones, tombstones);
+        } else {
+            data.logs = normalizeImportedLogs(Array.isArray(response) ? response : []);
+            data.tombstones = new Set();
+            data.pending = false;
         }
+        studentLogCache[courseName] = data.logs;
+        saveCourseToLocalStorage(courseName);
+        refreshPendingChanges();
+    } catch (error) {
+        console.warn('Could not refresh course ' + courseName, error);
+        if (strict) throw error;
+    } finally {
+        if (activeRequests.get(courseName) === requestId) activeRequests.delete(courseName);
     }
 }
 
@@ -8681,14 +8387,14 @@ function mergeLogs(serverLogs, localLogs, localTombstones, serverTombstonesMap) 
 * Centralized function to save course data and flag it for auto-sync.
 */
 function saveAndMarkChanges(courseName) {
+    const data = courseData[courseName];
+    if (!data) return;
+    data.pending = true;
+    data.revision = (data.revision || 0) + 1;
+    refreshPendingChanges();
     saveCourseToLocalStorage(courseName);
-    pendingChanges = true;
-
-    if (!isOnline) {
-        updateSyncStatus("Pending (offline)", "waiting");
-    } else if (isSignedIn && !isSyncing) {
-        updateSyncStatus("Pending sync...", "waiting");
-    }
+    if (!isOnline) updateSyncStatus('Pending (offline)', 'waiting');
+    else if (isSignedIn && !isSyncing) updateSyncStatus('Pending sync...', 'waiting');
 }
 
 // Helper function to convert a timestamp to a local ISO-like string (without timezone info)
@@ -8708,55 +8414,53 @@ function convertTimestampToLocalISOString(timestamp) {
 * Syncs the logs for the CURRENTLY SELECTED course with its Google Sheet.
 */
 async function syncLogsWithSheet() {
-    // Basic conditions check
-    if (!currentCourse || !isOnline || !isSignedIn) {
-        return;
+    if (!isOnline || !isSignedIn || !isAdmin) return;
+    // Restore dirty markers for every authorized course, including after a reload.
+    const courses = new Set([...availableCourses, ...Object.keys(courseData), currentCourse].filter(Boolean));
+    const prefix = LOGS_STORAGE_KEY + '_account_' + encodeURIComponent((currentUser?.email || '').trim().toLowerCase()) + '_admin_';
+    for (const key of Object.keys(localStorage)) {
+        if (!key.startsWith(prefix)) continue;
+        try {
+            const data = JSON.parse(localStorage.getItem(key));
+            if (data?.pending) courses.add(key.slice(prefix.length));
+        } catch { /* Leave unrecognised caches intact. */ }
     }
-
-    // ALL admins (global or not) will use the backend.
-    if (isAdmin) {
-        return syncViaBackendAPI();
+    for (const courseName of courses) {
+        if (!isAdminForCourse(courseName)) continue;
+        if (!courseData[courseName]) courseData[courseName] = await loadCourseFromLocalStorage(courseName);
+        if (courseData[courseName].pending) await syncViaBackendAPI(courseName);
     }
-
-    // Note: Students don't sync, so this function will just return.
+    refreshPendingChanges();
 }
 
-async function syncViaBackendAPI() {
-    const ownSync = !isSyncing; // true when called directly (not from autoSyncData)
+async function syncViaBackendAPI(courseName = currentCourse) {
+    if (!courseName || !isOnline || !isSignedIn || !isAdmin || !isAdminForCourse(courseName)) return;
+    if (courseSyncRequests.has(courseName)) return courseSyncRequests.get(courseName);
+    const data = courseData[courseName];
+    if (!data) return;
+    const revision = data.revision || 0;
+    const logs = data.logs.map(log => ({ ...log }));
+    const tombstones = Array.from(data.tombstones || []);
+    const account = currentUser?.email;
+    const request = (async () => {
+        const result = await callWebApp('syncCourseLogs_Admin', { courseName, logs, tombstones });
+        if (result?.result !== 'success') throw new Error(result?.message || 'Sync failed');
+        if (!isSignedIn || currentUser?.email !== account) return;
+        const latest = courseData[courseName];
+        // Acknowledgement covers only the snapshot sent, never edits made in flight.
+        if (latest && (latest.revision || 0) === revision) {
+            tombstones.forEach(id => latest.tombstones.delete(id));
+            latest.pending = false;
+        }
+        lastSyncTime = Date.now();
+        saveCourseToLocalStorage(courseName);
+        refreshPendingChanges();
+    })();
+    courseSyncRequests.set(courseName, request);
     try {
-        const logsToSync = courseData[currentCourse]?.logs || [];
-        const tombstonesToSync = Array.from(courseData[currentCourse]?.tombstones || []);
-
-        if (logsToSync.length === 0 && tombstonesToSync.length === 0) {
-            return;
-        }
-
-        if (ownSync) updateSyncStatus("Syncing...", "syncing");
-
-        const result = await callWebApp('syncCourseLogs_Admin', {
-            courseName: currentCourse,
-            logs: logsToSync,
-            tombstones: tombstonesToSync
-        }, 'POST');
-
-        if (result && result.result === 'success') {
-            pendingChanges = false;
-            lastSyncTime = Date.now();
-            saveCourseToLocalStorage(currentCourse);
-            if (ownSync) {
-                const t = new Date();
-                const time = t.getHours().toString().padStart(2, '0') + ':' + t.getMinutes().toString().padStart(2, '0');
-                updateSyncStatus(`Synced (${time})`, "success");
-                setTimeout(() => { if (!pendingChanges) updateSyncStatus("Online", "online"); }, 3000);
-            }
-        } else {
-            throw new Error(result?.message || 'Sync failed');
-        }
-
-    } catch (error) {
-        console.error('Backend sync error:', error);
-        if (ownSync) updateSyncStatus("Sync failed!", "error");
-        throw error;
+        await request;
+    } finally {
+        if (courseSyncRequests.get(courseName) === request) courseSyncRequests.delete(courseName);
     }
 }
 
@@ -9444,6 +9148,7 @@ function showConfirmationDialog({ title, message, confirmText = 'Confirm', cance
     document.body.appendChild(dialogBackdrop);
 
     const confirmBtn = dialog.querySelector('#dialog-confirm-btn');
+    const cancelBtn = dialog.querySelector('#dialog-cancel-btn');
     const closeConfirmDialog = () => {
         if (document.body.contains(dialogBackdrop)) {
             document.body.removeChild(dialogBackdrop);
@@ -9451,11 +9156,19 @@ function showConfirmationDialog({ title, message, confirmText = 'Confirm', cance
         closeDialogMode();
     };
 
-    confirmBtn.addEventListener('click', (e) => {
+    confirmBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
-        closeConfirmDialog();
-        if (typeof onConfirm === 'function') onConfirm();
-        closeDialogMode();
+        confirmBtn.disabled = true;
+        cancelBtn.disabled = true;
+        try {
+            // Keep form controls available while the callback reads selected options.
+            if (typeof onConfirm === 'function') await onConfirm();
+            closeConfirmDialog();
+        } catch (error) {
+            showNotification('error', 'Action Failed', escapeHtml(error.message || 'Please try again.'));
+            confirmBtn.disabled = false;
+            cancelBtn.disabled = false;
+        }
     });
 
     cancelBtn.addEventListener('click', (e) => {
@@ -10206,10 +9919,10 @@ async function performBulkAction(action) {
                     const originalLog = allLogs.find(l => l.id === id);
                     if (!originalLog) return;
                     const d = new Date(originalLog.timestamp);
-                    const key = `${originalLog.uid}_${d.getDate()}_${d.getMonth()}`;
+                    const key = `${originalLog.uid}_${d.getFullYear()}_${d.getMonth()}_${d.getDate()}`;
 
                     if (!groupsProcessed.has(key)) {
-                        const siblings = allLogs.filter(l => l.uid === originalLog.uid && new Date(l.timestamp).getDate() === d.getDate() && new Date(l.timestamp).getMonth() === d.getMonth());
+                        const siblings = allLogs.filter(l => l.uid === originalLog.uid && new Date(l.timestamp).toDateString() === d.toDateString());
                         if (siblings.length > 0) {
                             const latestSibling = siblings.reduce((prev, curr) => prev.timestamp > curr.timestamp ? prev : curr);
                             const newTime = new Date(latestSibling.timestamp);
@@ -10239,10 +9952,10 @@ async function performBulkAction(action) {
                     const originalLog = allLogs.find(l => l.id === id);
                     if (!originalLog) return;
                     const d = new Date(originalLog.timestamp);
-                    const key = `${originalLog.uid}_${d.getDate()}_${d.getMonth()}`;
+                    const key = `${originalLog.uid}_${d.getFullYear()}_${d.getMonth()}_${d.getDate()}`;
 
                     if (!groupsProcessed.has(key)) {
-                        const siblings = allLogs.filter(l => l.uid === originalLog.uid && new Date(l.timestamp).getDate() === d.getDate() && new Date(l.timestamp).getMonth() === d.getMonth());
+                        const siblings = allLogs.filter(l => l.uid === originalLog.uid && new Date(l.timestamp).toDateString() === d.toDateString());
                         let logToDelete = null;
 
                         // Logic to handle INHERIT vs Specific Session
@@ -10548,142 +10261,89 @@ function showDatabaseImportDialog(excelList) {
  * Handle file selection for logs JSON import.
  * @param {Event} event - The change event from the file input.
  */
+function normalizeImportedLogs(value) {
+    if (!Array.isArray(value)) throw new Error('Logs must be an array.');
+    const ids = new Set();
+    return value.map((entry, index) => {
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry) ||
+            !['string', 'number'].includes(typeof entry.uid) || !String(entry.uid).trim()) {
+            throw new Error('Entry ' + (index + 1) + ' is missing a valid card ID.');
+        }
+        const rawTime = entry.timestamp;
+        const timestamp = typeof rawTime === 'number' ? rawTime :
+            (typeof rawTime === 'string' && rawTime.trim() ? new Date(rawTime).getTime() : NaN);
+        if (!Number.isFinite(timestamp) || !Number.isFinite(new Date(timestamp).getTime())) {
+            throw new Error('Entry ' + (index + 1) + ' has an invalid timestamp.');
+        }
+        if (entry.id != null && !['string', 'number'].includes(typeof entry.id)) throw new Error('Invalid log ID.');
+        const id = String(entry.id || crypto.randomUUID());
+        if (ids.has(id)) throw new Error('Duplicate log ID at entry ' + (index + 1) + '.');
+        ids.add(id);
+        return {
+            uid: String(entry.uid).trim(), timestamp, id,
+            manual: entry.manual === true,
+            session: typeof entry.session === 'string' ? entry.session : '',
+            version: Number.isFinite(Number(entry.version)) ? Math.max(0, Number(entry.version)) : 0,
+            updatedAt: Number(entry.updatedAt) || 0,
+            updatedBy: typeof entry.updatedBy === 'string' ? entry.updatedBy : ''
+        };
+    }).sort((a, b) => b.timestamp - a.timestamp);
+}
+
 function handleImportFile(event) {
-    if (!isAdmin) return;
-
-    if (!currentCourse) {
-        showNotification('warning', 'No Course Selected', 'Please select a course before importing logs');
-        return;
-    }
-
+    if (!isAdmin || !currentCourse) return;
+    const courseName = currentCourse;
     const file = event.target.files[0];
+    event.target.value = '';
     if (!file) return;
-
     const reader = new FileReader();
-
-    reader.onload = function (e) {
+    reader.onload = e => {
         try {
-            const importedLogs = JSON.parse(e.target.result);
-
-            if (!Array.isArray(importedLogs)) {
-                throw new Error('Invalid format: Logs must be an array');
-            }
-
-            // Normalize timestamps to milliseconds and ensure IDs
-            importedLogs.forEach(log => {
-                if (log.timestamp) {
-                    try {
-                        log.timestamp = new Date(log.timestamp).getTime();
-
-                        if (isNaN(log.timestamp)) {
-                            console.warn(`Invalid timestamp: ${log.timestamp}`);
-                            log.timestamp = Date.now();
-                        }
-                    } catch (err) {
-                        console.warn(`Error parsing timestamp: ${err}`);
-                        log.timestamp = Date.now();
-                    }
-                } else {
-                    log.timestamp = Date.now();
-                }
-
-                // Ensure each log has an ID
-                if (!log.id) {
-                    log.id = Date.now() + Math.random().toString(36).substring(2, 11);
-                }
-            });
-
-            // Show import dialog
-            showImportDialog(importedLogs);
+            showImportDialog(normalizeImportedLogs(JSON.parse(e.target.result)), courseName);
         } catch (error) {
-            showNotification('error', 'Import Failed', 'The selected file is not a valid logs file.');
-            console.error('Import error:', error);
+            showNotification('error', 'Import Failed', escapeHtml(error.message));
         }
     };
-
-    reader.onerror = function () {
-        showNotification('error', 'Import Failed', 'Failed to read the file.');
-    };
-
+    reader.onerror = () => showNotification('error', 'Import Failed', 'Failed to read the file.');
     reader.readAsText(file);
-
-    // Reset the file input
-    event.target.value = '';
 }
 
 /**
  * Show import dialog for logs.
  * @param {Array} importedLogs - The logs to import.
  */
-function showImportDialog(importedLogs) {
-    // Create dialog backdrop
-    const dialogBackdrop = document.createElement('div');
-    dialogBackdrop.setAttribute('class', 'dialog-backdrop');
-
-    // Create dialog box
-    const dialog = document.createElement('div');
-    dialog.setAttribute('class', 'dialog');
-    dialog.setAttribute('role', 'dialog');
-    dialog.setAttribute('aria-modal', 'true');
-
-    dialog.innerHTML = `
-	<h3 class="dialog-title">Import Logs</h3>
-	<div class="dialog-content"><p>Imported ${importedLogs.length} log entries. How would you like to proceed?</p>
-	</div><div class="dialog-actions">
-		<button id="merge-logs-btn" class="btn-green">Merge with Existing</button>
-		<button id="replace-logs-btn" class="btn-orange">Replace All</button>
-		<button id="cancel-import-btn" class="btn-red">Cancel</button>
-	</div>
-`;
-
-    dialogBackdrop.appendChild(dialog);
-    document.body.appendChild(dialogBackdrop);
-
-    // Merge option
-    document.getElementById('merge-logs-btn').addEventListener('click', () => {
-        const logsForCurrentCourse = courseData[currentCourse].logs;
-        const existingIds = new Set(logsForCurrentCourse.map(log => log.id));
-
-        let newCount = 0;
-        importedLogs.forEach(log => {
-            if (!existingIds.has(log.id)) {
-                // Push to the correct course's log array.
-                logsForCurrentCourse.push(log);
-                newCount++;
-            }
-        });
-
-        logsForCurrentCourse.sort((a, b) => b.timestamp - a.timestamp);
-        saveCourseToLocalStorage(currentCourse);
-
-        if (isOnline && isSignedIn) {
-            syncLogsWithSheet().catch(err => console.error('Error syncing logs:', err));
-        }
-
+function showImportDialog(importedLogs, courseName = currentCourse) {
+    const backdrop = document.createElement('div');
+    backdrop.className = 'dialog-backdrop';
+    backdrop.innerHTML = '<div class="dialog" role="dialog" aria-modal="true">' +
+        '<h3 class="dialog-title">Import Logs</h3><div class="dialog-content"><p>Import ' + importedLogs.length +
+        ' entries into ' + escapeHtml(courseName.replace(/_/g, ' ')) + '?</p></div>' +
+        '<div class="dialog-actions"><button id="merge-logs-btn" class="btn-green">Merge with Existing</button>' +
+        '<button id="replace-logs-btn" class="btn-orange">Replace All</button>' +
+        '<button id="cancel-import-btn" class="btn-red">Cancel</button></div></div>';
+    document.body.appendChild(backdrop);
+    const apply = replace => {
+        if (!isSignedIn || !isAdmin || !isAdminForCourse(courseName)) return;
+        const data = courseData[courseName] ||= { logs: [], tombstones: new Set() };
+        const incomingIds = new Set(importedLogs.map(log => log.id));
+        const existingIds = new Set(data.logs.map(log => log.id));
+        if (replace) data.logs.forEach(log => { if (!incomingIds.has(log.id)) data.tombstones.add(log.id); });
+        const additions = importedLogs.filter(log => replace || (!existingIds.has(log.id) && !data.tombstones.has(log.id)))
+            .map(log => touchLogForEdit({ ...log }, currentUser?.email));
+        if (replace) incomingIds.forEach(id => data.tombstones.delete(id));
+        data.logs = (replace ? additions : [...data.logs, ...additions]).sort((a, b) => b.timestamp - a.timestamp);
+        saveAndMarkChanges(courseName);
         updateUI();
-        showNotification('success', 'Import Complete', `Added ${newCount} new log entries.`);
-        document.body.removeChild(dialogBackdrop);
+        backdrop.remove();
+        showNotification('success', 'Import Complete', additions.length + ' entries imported.');
+        if (isOnline) syncLogsWithSheet().catch(() => showNotification('warning', 'Upload Pending', 'Imported logs are saved on this device. Retry sync when connected.'));
+    };
+    backdrop.querySelector('#merge-logs-btn').onclick = () => apply(false);
+    backdrop.querySelector('#replace-logs-btn').onclick = () => showConfirmationDialog({
+        title: 'Replace attendance logs?', message: 'Existing entries not in this file will be deleted from this course.',
+        confirmText: 'Replace All', isDestructive: true, onConfirm: () => apply(true)
     });
-
-    // Replace option
-    document.getElementById('replace-logs-btn').addEventListener('click', () => {
-        // Replace the logs for the current course only.
-        courseData[currentCourse].logs = [...importedLogs].sort((a, b) => b.timestamp - a.timestamp);
-        saveCourseToLocalStorage(currentCourse);
-
-        if (isOnline && isSignedIn) {
-            syncLogsWithSheet().catch(err => console.error('Error syncing logs:', err));
-        }
-
-        updateUI();
-        showNotification('success', 'Import Complete', `Replaced logs with ${importedLogs.length} imported entries.`);
-        document.body.removeChild(dialogBackdrop);
-    });
-
-    // Cancel option
-    document.getElementById('cancel-import-btn').addEventListener('click', () => {
-        document.body.removeChild(dialogBackdrop);
-    });
+    backdrop.querySelector('#cancel-import-btn').onclick = () => backdrop.remove();
 }
 
 
@@ -10795,7 +10455,7 @@ function updateLogsList() {
         result = result.filter(group => {
             const name = group.name || '';
             // The main UID for the group is now the specific one that was scanned
-            const uidMatch = group.uid.toLowerCase().includes(filter);
+            const uidMatch = String(group.uid || '').toLowerCase().includes(filter);
             const date = group.date || '';
             const hasMatchingTime = group.originalLogs.some(log => {
                 const timeObj = new Date(log.timestamp);
@@ -10806,7 +10466,7 @@ function updateLogsList() {
                 (log.session || '').toLowerCase().includes(filter)
             );
 
-            return name.toLowerCase().includes(filter) ||
+            return normalizeName(name).includes(normalizeName(filter)) ||
                 uidMatch ||
                 date.includes(filter) ||
                 hasMatchingTime ||
@@ -11041,7 +10701,7 @@ function updateLogsList() {
                 actionsWrapper.appendChild(addUserBtn);
             }
 
-            actionsWrapper.innerHTML += `
+            actionsWrapper.insertAdjacentHTML('beforeend', `
     <button class="btn-green btn-icon add-time-btn" title="Add +1 Hour" aria-label="Add another hour for ${escapeHtml(group.name)}">
         <i class="fa-solid fa-plus"></i>
     </button>
@@ -11050,7 +10710,7 @@ function updateLogsList() {
     </button>
     <button class="btn-blue btn-icon edit-log-btn" title="Edit" aria-label="Edit entry for ${escapeHtml(group.name)}">
         <i class="fa-solid fa-pencil"></i>
-    </button>`;
+    </button>`);
 
             actionsCell.appendChild(actionsWrapper);
             row.appendChild(actionsCell);
@@ -11896,37 +11556,30 @@ async function updateUI() {
  * Start NFC scanning.
  */
 async function startScanning() {
-    if (!nfcSupported) return;
-
+    if (!nfcSupported || nfcReader) return;
+    const controller = new AbortController();
+    const reader = new NDEFReader();
+    nfcAbortController = controller;
+    nfcReader = reader;
     try {
-        if (!nfcReader) {
-            nfcAbortController = new AbortController();
-            nfcReader = new NDEFReader();
-            await nfcReader.scan({ signal: nfcAbortController.signal });
-
-            nfcReader.addEventListener("reading", handleNfcReading);
-            nfcReader.addEventListener("error", handleNfcError);
-        }
-
+        reader.addEventListener('reading', handleNfcReading);
+        reader.addEventListener('readingerror', handleNfcError);
+        await reader.scan({ signal: controller.signal });
+        if (controller.signal.aborted || nfcReader !== reader) return;
         isScanning = true;
-
-        // UI Update
-        const scanBtn = document.getElementById('scan-button');
-        scanBtn.classList.add('is-scanning');
-
-        // FORCE CLOCK START
+        document.getElementById('scan-button').classList.add('is-scanning');
         updateScanClock();
         if (scanClockInterval) clearInterval(scanClockInterval);
         scanClockInterval = setInterval(updateScanClock, 1000);
-
     } catch (error) {
+        if (controller.signal.aborted || nfcReader !== reader) return;
         handleScanningError(error);
     }
 }
 
 function handleScanningError(error) {
     // Handle permission denied and other errors
-    let errorMessage = error.message;
+    let errorMessage = error?.message || 'Could not start NFC scanning. Please try again.';
     let errorTitle = 'Scanner error';
 
     if (error.name === 'NotAllowedError' || errorMessage.includes('permission')) {
@@ -11969,13 +11622,20 @@ function updateScanButtons() {
 * SCENARIO B: If logged in, records attendance for the current course.
 */
 async function handleNfcReading({ serialNumber }) {
-    playSound(true);
+    if (document.querySelector('.dialog-backdrop')) return;
+    if (typeof serialNumber !== 'string' || !serialNumber.trim()) {
+        playSound(false);
+        showNotification('warning', 'Card Not Read', 'Hold your card against the reader and try again.');
+        return;
+    }
 
     // ============================================================
     // SCENARIO A: LOGIN CHECK / GUEST MODE
     // Run this ONLY if we are NOT signed in
     // ============================================================
     if (!isSignedIn) {
+        if (nfcLoginInProgress) return;
+        nfcLoginInProgress = true;
         const notSignedInMsg = document.getElementById('not-signed-in-message');
         if (notSignedInMsg) notSignedInMsg.innerHTML = `<div style="text-align:center;"><i class="fa-solid fa-circle-notch fa-spin"></i> Checking credentials...</div>`;
 
@@ -12003,7 +11663,8 @@ async function handleNfcReading({ serialNumber }) {
                 localStorage.setItem(KIOSK_MODE_KEY, '1');
                 currentUser = data.user;
                 showNotification('success', 'Session Active', `Welcome, ${currentUser.name}`);
-                onSuccessfulAuth(false);
+                playSound(true);
+                await onSuccessfulAuth(false);
             } else {
                 if (data && data.result === 'error' && data.message) {
                     showNotification('warning', 'Kiosk Login', data.message);
@@ -12019,6 +11680,8 @@ async function handleNfcReading({ serialNumber }) {
             // Network error implies offline or unauthenticated guest, show converted ID
             lastScannedUID = convertUidToExternalId(serialNumber);
             updateAuthUI();
+        } finally {
+            nfcLoginInProgress = false;
         }
         return; // Stop here
     }
@@ -12035,7 +11698,8 @@ async function handleNfcReading({ serialNumber }) {
 
     // Security Check: Only block if we are signed in but NOT an admin
     // (If isLecturerMode is true, we bypass this because auth is offline)
-    if (isSignedIn && !isAdmin) {
+    if (!isAdmin || (currentCourse && !isAdminForCourse(currentCourse))) {
+        playSound(false);
         showNotification('error', 'Action Not Allowed', 'Only administrators can record attendance.');
         return;
     }
@@ -12051,6 +11715,7 @@ async function handleNfcReading({ serialNumber }) {
     }
 
     const timestamp = new Date();
+    playSound(true);
 
     let newLog = {
         uid: convertedUid,
@@ -12106,11 +11771,8 @@ async function handleNfcReading({ serialNumber }) {
  * @param {Object} error - The NFC error.
  */
 function handleNfcError(error) {
-    // Play error sound
     playSound(false);
-
-    showNotification('error', 'Scanner error', error.message);
-    stopScanning();
+    showNotification('warning', 'Card Not Read', error?.message || 'Hold your card steady and tap again.');
 }
 
 /**
@@ -12147,6 +11809,7 @@ function playSound(success) {
     if (!soundEnabled) return;
 
     const sound = success ? successSound : errorSound;
+    if (!sound) return;
 
     // Reset to start (0) only if the audio metadata is loaded
     if (sound.readyState >= 1) {
@@ -12669,32 +12332,19 @@ function setupCatCompanion() {
     });
 }
 
-// Initialize the application when window loads
-window.addEventListener('load', function () {
-
-    // Initialize the app UI first
+// Restore Supabase sessions even when Google One Tap is blocked or unavailable.
+window.addEventListener('load', () => {
     init();
-
-    // Reduced initial delay - Google APIs usually load fast
-    setTimeout(() => {
-        if (typeof supabase !== 'undefined' && typeof google !== 'undefined') {
-            initGoogleApi();
-        } else {
-            console.warn('Google API objects not available yet, waiting...');
-
-            // Fallback with longer timeout
-            setTimeout(() => {
-                if (typeof supabase !== 'undefined' && typeof google !== 'undefined') {
-                    initGoogleApi();
-                } else {
-                    console.error('Google API objects still not available');
-                    showNotification('error', 'API Error',
-                        'Google API libraries not loaded. Please refresh the page.');
-                    availableCourses = [];
-                    populateCourseDropdown();
-                    updateAuthUI();
-                }
-            }, 2000);
-        }
-    }, 1000); // Reduced from 2000ms to 1000ms
+    if (!supabaseClient) {
+        showMainContent();
+        loginBtn.disabled = true;
+        showNotification('error', 'Connection Library Unavailable', 'The sign-in library could not load. Check your connection and reload this page.');
+        return;
+    }
+    initGoogleApi();
 });
+
+function getRouteCourse() {
+    try { return decodeURIComponent(window.location.hash.slice(1)); }
+    catch { return window.location.hash.slice(1); }
+}

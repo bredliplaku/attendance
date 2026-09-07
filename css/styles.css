@@ -4631,6 +4631,8 @@
 
         /* ===== Theme Toggle & Dark Mode Styles ===== */
         .theme-toggle {
+            min-width: 36px;
+            min-height: 36px;
             background: none;
             border: none;
             box-shadow: none;
@@ -6197,3 +6199,17 @@
             background: rgba(33, 150, 243, 0.2);
             color: #64b5f6;
         }
+/* Keep keyboard navigation visible in either theme. */
+:where(button, a, input, select, textarea, [tabindex]):focus-visible {
+    outline: 3px solid var(--primary-color, #0053a1);
+    outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+}

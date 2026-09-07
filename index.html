@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Stando</title>
     <link rel="icon" href="./favicon.png">
     <meta name="theme-color" content="#f4f4f4" />
@@ -222,8 +222,8 @@
                 </div>
                 <div class="module-content">
                     <div class="filter-container">
-                        <input type="text" id="filter-input" class="filter-input" placeholder="Search...">
-                        <select id="sort-select" class="sort-dropdown">
+                        <input type="search" id="filter-input" class="filter-input" placeholder="Search name, card, date or session..." aria-label="Search attendance logs">
+                        <select id="sort-select" class="sort-dropdown" aria-label="Sort attendance logs">
                             <option value="date-desc"> Date (Newest)</option>
                             <option value="date-asc"> Date (Oldest)</option>
                             <option value="name-asc"> Name (A-Z)</option>
@@ -312,8 +312,8 @@
                 </div>
                 <div class="module-content">
                     <div class="filter-container">
-                        <input type="text" id="db-filter-input" class="filter-input" placeholder="Search...">
-                        <select id="db-sort-select" class="sort-dropdown">
+                        <input type="search" id="db-filter-input" class="filter-input" placeholder="Search students..." aria-label="Search students">
+                        <select id="db-sort-select" class="sort-dropdown" aria-label="Sort students">
                             <option value="name-asc"> Name (A-Z)</option>
                             <option value="name-desc"> Name (Z-A)</option>
                             <option value="id-asc"> ID (Asc)</option>
@@ -397,6 +397,8 @@
                         class="fa-solid fa-envelope"></i></a>
                 <button id="theme-toggle-btn" class="theme-toggle" title="Toggle Theme"><i
                         class="fa-solid fa-circle-half-stroke"></i></button>
+                <button id="sound-toggle-btn" class="theme-toggle" title="Mute scan sounds" aria-label="Scan sounds" aria-pressed="true"><i
+                        class="fa-solid fa-volume-high"></i></button>
             </div>
             <p style="font-size:0.7em"><i class="fa-regular fa-copyright"></i> 2023-<span id="currentYear"></span>
                 Bredli Plaku. All Rights Reserved.</p>

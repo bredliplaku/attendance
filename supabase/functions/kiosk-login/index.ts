@@ -16,6 +16,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 const ALLOWED_ORIGINS = new Set([
   "https://bredliplaku.com",
   "https://www.bredliplaku.com",
+  "https://attendance.bredliplaku.com",
   "https://bredliplaku.github.io",
 ]);
 const LOCALHOST_RE = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
@@ -23,7 +24,7 @@ const LOCALHOST_RE = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 function convertUidToExternalId(rawUid: string): string {
   if (typeof rawUid !== "string") return rawUid;
   const bytes = rawUid.split(":");
-  if (bytes.length !== 4 || !bytes.slice(0, 3).every((b) => /^[0-9a-fA-F]{2}$/.test(b))) {
+  if (bytes.length !== 4 || !bytes.every((b) => /^[0-9a-fA-F]{2}$/.test(b))) {
     return rawUid;
   }
   const decimal = parseInt(bytes[2] + bytes[1] + bytes[0], 16);
@@ -35,11 +36,12 @@ function corsHeaders(req: Request): Record<string, string> {
   const isAllowed = ALLOWED_ORIGINS.has(origin) || LOCALHOST_RE.test(origin) || !origin;
   const headers: Record<string, string> = {
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Vary": "Origin",
   };
-  if (origin) {
+  if (origin && isAllowed) {
     headers["Access-Control-Allow-Origin"] = origin;
-  } else {
+  } else if (!origin) {
     headers["Access-Control-Allow-Origin"] = "*";
   }
   return headers;
@@ -53,7 +55,12 @@ const RATE_LIMIT_MAX_ATTEMPTS = 5;
 
 Deno.serve(async (req) => {
   const cors = corsHeaders(req);
+  const origin = req.headers.get("origin") ?? "";
+  if (origin && !ALLOWED_ORIGINS.has(origin) && !LOCALHOST_RE.test(origin)) {
+    return new Response("Origin not allowed", { status: 403, headers: cors });
+  }
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
+  if (req.method !== "POST") return new Response("Method not allowed", { status: 405, headers: { ...cors, Allow: "POST, OPTIONS" } });
 
   const json = (body: unknown, status = 200) =>
     new Response(JSON.stringify(body), {
@@ -62,8 +69,11 @@ Deno.serve(async (req) => {
     });
 
   try {
-    const { uid, deviceId } = await req.json();
-    if (!uid) return json({ result: "error", message: "Missing uid" }, 400);
+    const payload = await req.json().catch(() => null);
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) return json({ result: "error", message: "Invalid JSON payload" }, 400);
+    const { uid, deviceId } = payload;
+    if (typeof uid !== "string" || !uid.trim() || uid.length > 128) return json({ result: "error", message: "Invalid uid" }, 400);
+    if (deviceId != null && (typeof deviceId !== "string" || deviceId.length > 128)) return json({ result: "error", message: "Invalid device ID" }, 400);
 
     const admin = createClient(
       Deno.env.get("SUPABASE_URL")!,

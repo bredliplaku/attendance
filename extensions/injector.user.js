@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EIS Attendance Importer
 // @namespace    https://bredliplaku.com/
-// @version      2.3
+// @version      2.4
 // @description  Automatically import attendance data from clipboard on EIS page load.
 // @author       Bredli Plaku
 // @match        https://eis.epoka.edu.al/courseattendance/*/newcl
@@ -91,6 +91,12 @@
 
     // --- CORE LOGIC ---
     function processAttendanceData(data) {
+        if (!data || !data.parameters || !data.attendance || !data.nameMap ||
+            typeof data.parameters.category !== 'string' || !data.parameters.category.trim() ||
+            typeof data.attendance !== 'object' || Array.isArray(data.attendance) ||
+            typeof data.nameMap !== 'object' || Array.isArray(data.nameMap)) {
+            throw new Error('Invalid attendance file: parameters, attendance and nameMap are required.');
+        }
         console.log("EIS Script: Processing...", data);
         if (data.options) Object.assign(CONFIG, data.options);
 
@@ -200,6 +206,12 @@
     }
 
     function processAttendance(attendance, nameMap, numHours) {
+        numHours = Number(numHours);
+        if (!Number.isSafeInteger(numHours) || numHours < 1) {
+            hideLoadingIndicator();
+            showImprovedNotification('error', 'Invalid Hours', 'Select a valid number of class hours before importing.');
+            return;
+        }
         const rows = document.querySelectorAll("#student_list_table tbody tr");
         let processed = 0, skipped = 0, noUid = 0;
 
@@ -234,7 +246,7 @@
                 return;
             }
 
-            const attendCount = attendance[foundUid] || 0;
+            const attendCount = Math.max(0, Math.min(numHours, Math.floor(Number(attendance[foundUid]) || 0)));
             const checkboxes = Array.from(row.querySelectorAll("input[type='checkbox']")).slice(1, 1 + parseInt(numHours));
 
             checkboxes.forEach((checkbox, i) => {

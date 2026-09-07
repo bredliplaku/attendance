@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EIS Attendance Sheet Generator
 // @namespace    https://bredliplaku.com/
-// @version      2.4
+// @version      2.5
 // @description  Generates attendance sheet that perfectly matches the original template with customizable fields
 // @author       Bredli Plaku
 // @match        https://eis.epoka.edu.al/courseattendance/*/editcl
@@ -14,6 +14,10 @@
 
 (function () {
     "use strict";
+
+    function isPresentCellText(text) {
+        return /^(?:✓|✔|P|Present)$/i.test(String(text).trim());
+    }
 
     // Import additional formal/official document signing fonts
     const fontLink = document.createElement("link");
@@ -923,13 +927,7 @@
 
                             // Check for text content that indicates attendance
                             const cellText = cell.textContent.trim();
-                            if (
-                                cellText === "✓" ||
-                                cellText === "✔" ||
-                                cellText === "P" ||
-                                cellText === "Present" ||
-                                cellText !== ""
-                            ) {
+                            if (isPresentCellText(cellText)) {
                                 data.attendance[studentId][i] = true;
                             }
                         }
