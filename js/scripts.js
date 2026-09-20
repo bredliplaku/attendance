@@ -333,7 +333,7 @@ function showStaffEditorDialog(staffData = null) {
             </div>
 
             <div class="form-group">
-                <label class="dialog-label-fixed"><i class="fa-solid fa-id-card"></i> ID</label>
+                <label class="dialog-label-fixed"><i class="fa-solid fa-id-card"></i> Card ID</label>
                 <input type="text" id="staff-converted-id" class="form-control" placeholder="Auto-calculated from UID" value="${escapeHtml(convertUidToExternalId(uidVal))}" disabled style="opacity:0.75; cursor:not-allowed; background:rgba(0,0,0,0.04);">
             </div>
             
@@ -1290,7 +1290,7 @@ window.buildUIDToPrimaryUidMap = function () {
         const student = databaseMap[index];
         if (!student) return;
 
-        // 1. Map Student IDs (uids array in Supabase)
+        // 1. Map Card IDs (uids array in Supabase)
         if (student.uids && Array.isArray(student.uids)) {
             student.uids.forEach(rawId => {
                 const s = String(rawId || '').trim();
@@ -1323,7 +1323,7 @@ window.buildUIDToPrimaryUidMap = function () {
 };
 
 /**
- * Converts a 4-byte NFC Card Hardware UID ("9a:0b:b6:88") to the decimal Student ID ("11930522")
+ * Converts a 4-byte NFC Card Hardware UID ("9a:0b:b6:88") to the decimal Card ID ("11930522")
  * by reversing the first 3 bytes and reading them as a big-endian hex number.
  */
 function convertUidToExternalId(rawUid) {
@@ -1338,7 +1338,7 @@ function convertUidToExternalId(rawUid) {
 }
 
 /**
- * Converts a decimal Student ID ("11930522") to a 4-byte NFC Card Hardware UID ("9a:0b:b6:88").
+ * Converts a decimal Card ID ("11930522") to a 4-byte NFC Card Hardware UID ("9a:0b:b6:88").
  */
 function convertExternalIdToUid(id) {
     if (!id && id !== 0) return '';
@@ -1358,7 +1358,7 @@ function convertExternalIdToUid(id) {
     return `${b0}:${b1}:${b2}:${b3}`.toLowerCase();
 }
 
-// Dual lookup: matches raw Card UIDs, Student IDs, or cross-converted values
+// Dual lookup: matches raw Card UIDs, Card IDs, or cross-converted values
 function lookupPrimaryUid(rawUid) {
     if (!rawUid) return null;
     const s = String(rawUid).trim();
@@ -1585,7 +1585,7 @@ function setupEventListeners() {
         }
     });
 
-    if (importExcelBtn) importExcelBtn.addEventListener('click', () => excelInput.click());
+    if (importExcelBtn) importExcelBtn.addEventListener('click', showStudentImportGuide);
     if (excelInput) excelInput.addEventListener('change', handleExcelFile);
     if (filterInput) filterInput.addEventListener('input', debounce(handleFilterChange, 300));
     if (sortSelect) sortSelect.addEventListener('change', handleSortChange);
@@ -2645,50 +2645,23 @@ function showCourseEditorDialog(courseName, courseData = null) {
 
     // --- Save Logic ---
     dialog.querySelector('#save-edit-c').onclick = async (e) => {
-        const btn = e.target;
+        const btn = e.currentTarget;
         const nameInput = document.getElementById('edit-c-name');
         const rawName = nameInput.value.trim();
-        let systemName = rawName.replace(/\s+/g, '_');
-
-        // --- VALIDATION: Required & Max Length ---
-        if (!systemName) {
-            showInputError(nameInput, 'Course code is required.');
-            return;
-        }
-
-        if (systemName.length > 50) {
-            showInputError(nameInput, 'Name is too long (max 50 chars).');
-            return;
-        }
-
-        // --- VALIDATION: Forbidden Characters ---
-        if (/[:\\\/?*\[\]]/.test(systemName)) {
-            showInputError(nameInput, 'Name contains invalid characters (: \\ / ? * [ ]).');
-            return;
-        }
-
         const isArchived = (isGlobalAdmin && !isNew && document.getElementById('edit-c-archived'))
             ? document.getElementById('edit-c-archived').checked
             : (data.archived || false);
-
-        // Ensure archived course has an identifying suffix so it frees the active name
-        const eisVal = (document.getElementById('edit-c-eis')?.value || data.eisId || '').trim();
-        const archSuffix = eisVal ? `_${eisVal}` : '_archived';
-        if (isArchived && !systemName.endsWith(archSuffix) && !systemName.toLowerCase().endsWith('_archived')) {
-            systemName = systemName + archSuffix;
-        }
-
-        // Duplicate name validation
-        if (isNew) {
-            if (courseInfoMap && courseInfoMap[systemName]) {
-                showInputError(nameInput, `A course named '${systemName.replace(/_/g, ' ')}' already exists.`);
-                return;
-            }
-        } else if (courseName && systemName !== courseName) {
-            if (courseInfoMap && courseInfoMap[systemName]) {
-                showInputError(nameInput, `Cannot rename: '${systemName.replace(/_/g, ' ')}' already exists.`);
-                return;
-            }
+        const eisInput = document.getElementById('edit-c-eis');
+        const eisVal = eisInput.value.trim();
+        clearInputError(nameInput);
+        clearInputError(eisInput);
+        let systemName;
+        try {
+            systemName = StandoData.resolveCourseName({ code: rawName, eisId: eisVal,
+                originalName: courseName, originalData: data, archived: isArchived, courses: courseInfoMap });
+        } catch (error) {
+            showInputError(error.message.startsWith('EIS ID') ? eisInput : nameInput, error.message);
+            return;
         }
 
         btn.disabled = true;
@@ -2710,7 +2683,7 @@ function showCourseEditorDialog(courseName, courseData = null) {
             endDate: document.getElementById('edit-c-end').value,
             holidayStartDate: document.getElementById('edit-c-holiday-start').value,
             holidayWeeks: document.getElementById('edit-c-holidays').value,
-            eisId: document.getElementById('edit-c-eis').value,
+            eisId: eisVal,
             availableSections: currentSections.join(', '),
             adminEmails: isGlobalAdmin ? finalAdminString : (data.adminEmails || '')
         };
@@ -2719,6 +2692,19 @@ function showCourseEditorDialog(courseName, courseData = null) {
         try {
             const res = await callWebApp('saveCourseSettings_Admin', payload, 'POST');
             if (res.result === 'success') {
+                // Refresh the picker too, so restored and new courses are usable immediately.
+                try {
+                    const [info, courses] = await Promise.all([
+                        callWebApp('getCourseInfo'), callWebApp('getAvailableCourses')
+                    ]);
+                    courseInfoMap = info;
+                    availableCourses = Object.keys(courses).filter(name => !info[name]?.archived);
+                    courseDictionary = Object.fromEntries(availableCourses.map(name => [name, courses[name]]));
+                    courseIDMap = Object.fromEntries(Object.entries(info).map(([name, metadata]) => [name, metadata.eisId]));
+                    populateCourseButtons();
+                } catch (refreshError) {
+                    showNotification('warning', 'Refresh Needed', 'Course saved. Reload the page to refresh the course list.');
+                }
                 showNotification('success', 'Saved', 'Course updated.');
                 close();
                 document.querySelectorAll('.dialog-backdrop').forEach(el => el.remove());
@@ -2913,7 +2899,7 @@ async function showStudentProfileDialog() {
         </div>
     </div>
 
-    <div class="form-section-title" style="margin-top:0; font-size:0.9em; text-align:center;">My Student IDs</div>
+    <div class="form-section-title" style="margin-top:0; font-size:0.9em; text-align:center;">My Card IDs</div>
     ${uidContent}
 
     <div class="form-section-title" style="margin-top:14px; font-size:0.9em; text-align:center;">Permission History</div>
@@ -3174,19 +3160,49 @@ function exportLogs() {
  * Export database to Excel file.
  */
 function exportDatabaseToExcel() {
-    const entries = Object.entries(databaseMap);
-    if (entries.length === 0) return showNotification('warning', 'Export Failed', 'Database is empty.');
+    const rows = StandoData.studentExportRows(databaseMap);
+    if (rows.length === 1) return showNotification('warning', 'Export Failed', 'There are no students to export.');
+    writeStudentWorkbook(rows, 'students.xlsx');
+    showNotification('success', 'Export Complete', `${rows.length - 1} students exported. This file can be imported again.`);
+}
 
-    const wsData = [["Name", "UID", "Email"]];
-    entries.filter(([, data]) => !data.isStaff).sort((a, b) => a[1].name.localeCompare(b[1].name)).forEach(([, data]) => {
-        (data.uids || []).forEach(uid => wsData.push([data.name, String(uid), data.email || '']));
-    });
-
-    const worksheet = XLSX.utils.aoa_to_sheet(wsData);
+function writeStudentWorkbook(rows, filename) {
+    const worksheet = XLSX.utils.aoa_to_sheet(rows);
+    worksheet['!cols'] = [{ wch: 30 }, { wch: 24 }, { wch: 38 }, { wch: 28 }];
+    worksheet['!autofilter'] = { ref: worksheet['!ref'] };
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Database");
-    XLSX.writeFile(workbook, "uid_database.xlsx");
-    showNotification('success', 'Export Complete', 'Database exported to Excel file.');
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Students');
+    XLSX.writeFile(workbook, filename);
+}
+
+function showStudentImportGuide() {
+    if (!isAdmin) return;
+    const backdrop = document.createElement('div');
+    backdrop.className = 'dialog-backdrop';
+    backdrop.innerHTML = `<div class="dialog" role="dialog" aria-modal="true" aria-labelledby="student-import-title">
+        <h3 class="dialog-title" id="student-import-title"><i class="fa-solid fa-file-import"></i> Import Students</h3>
+        <div class="dialog-content">
+            <p>Choose an Excel or CSV file. You can select a sheet and assign its columns before importing.</p>
+            <div class="table-container">
+                <table class="database-table">
+                    <thead><tr><th>Name</th><th>Card ID</th><th>Email</th></tr></thead>
+                    <tbody><tr><td>Example Student</td><td>001234</td><td>student@example.edu</td></tr></tbody>
+                </table>
+            </div>
+            <p>Keep Card IDs as text to preserve leading zeros. Use the template if you need a starting file.</p>
+            <button type="button" id="student-template-btn" class="btn-blue btn-sm"><i class="fa-solid fa-download"></i> Download Template</button>
+        </div>
+        <div class="dialog-actions">
+            <button type="button" id="cancel-student-guide" class="btn-red"><i class="fa-solid fa-xmark"></i> Cancel</button>
+            <button type="button" id="choose-student-file" class="btn-green"><i class="fa-solid fa-folder-open"></i> Choose File</button>
+        </div></div>`;
+    document.body.appendChild(backdrop);
+    backdrop.querySelector('#student-template-btn').onclick = () => writeStudentWorkbook([StandoData.studentColumns.slice(0, 3)], 'student_import_template.xlsx');
+    backdrop.querySelector('#cancel-student-guide').onclick = () => backdrop.remove();
+    backdrop.querySelector('#choose-student-file').onclick = () => {
+        backdrop.remove();
+        excelInput.click();
+    };
 }
 
 /**
@@ -4403,7 +4419,7 @@ function showRegisterUIDDialog() {
         callWebApp('submitRegistration', submitData, 'POST')
             .then(data => {
                 if (data && data.result === 'success') {
-                    showNotification('success', 'Submission Sent!', 'Your Student ID Card application has been sent for approval.');
+                    showNotification('success', 'Submission Sent!', 'Your card application has been sent for approval.');
                     closeDialog();
                 } else {
                     const errorMessage = (data && data.message) ? data.message : "An unknown error occurred.";
@@ -4468,7 +4484,7 @@ function showRegisterUIDDialogWithPrefill(prefillUid) {
             </div>
 
             <div class="form-group">
-                <label class="dialog-label-fixed" for="register-prefill-student-id"><i class="fa-solid fa-id-card"></i> ID</label>
+                <label class="dialog-label-fixed" for="register-prefill-student-id"><i class="fa-solid fa-id-card"></i> Card ID</label>
                 <input type="text" id="register-prefill-student-id" class="form-control" value="${escapeHtml(initId)}" placeholder="Auto-calculated from UID" disabled style="opacity:0.75; cursor:not-allowed; background:rgba(0,0,0,0.04);">
             </div>
 
@@ -4703,7 +4719,7 @@ function showDuplicateWarningForNewEntry(newData, duplicates, onCompleteCallback
                 <input class="form-control" value="${escapeHtml(existing.name)}" disabled style="background: transparent; border: none; padding: 5px; height: auto;">
             </div>
             <div class="form-group" style="margin-bottom: 8px;">
-                <label class="dialog-label-fixed"><i class="fa-solid fa-id-card"></i> ID(s)</label>
+                <label class="dialog-label-fixed"><i class="fa-solid fa-id-card"></i> Card ID(s)</label>
                 <input class="form-control" value="${escapeHtml(existingIdsDisplay)}" disabled style="background: transparent; border: none; padding: 5px; height: auto;">
             </div>
             <div class="form-group" style="margin-bottom: 8px;">
@@ -4733,7 +4749,7 @@ function showDuplicateWarningForNewEntry(newData, duplicates, onCompleteCallback
         </div>
         
         <div class="form-group" style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
-            <label class="dialog-label-fixed"><i class="fa-solid fa-id-card"></i> ID</label>
+            <label class="dialog-label-fixed"><i class="fa-solid fa-id-card"></i> Card ID</label>
             <input class="form-control" value="${escapeHtml(newStudentId)}" disabled style="flex: 1;">
             ${uidActionHTML}
         </div>
@@ -4894,7 +4910,7 @@ function showRegistrationDetailsDialog(data, isReadOnly = false) {
         <input class="form-control form-group-control" value="${escapeHtml(data.email)}" disabled>
     </div>
     <div class="form-group" style="align-items: flex-start;">
-        <label><i class="fa-solid fa-id-card"></i> ID:</label>
+        <label><i class="fa-solid fa-id-card"></i> Card ID:</label>
         <input class="form-control form-group-control" value="${escapeHtml(decId)}" disabled>
     </div>
     <div class="form-group" style="align-items: flex-start;">
@@ -5064,7 +5080,7 @@ function showFinalApprovalDialog(registration) {
         </div>
 
         <div class="form-group">
-            <label class="dialog-label-fixed" for="approve-id"><i class="fa-solid fa-id-card"></i> ID</label>
+            <label class="dialog-label-fixed" for="approve-id"><i class="fa-solid fa-id-card"></i> Card ID</label>
             <input type="text" id="approve-id" class="form-control" value="${escapeHtml(decId)}" disabled>
         </div>
 
@@ -5204,7 +5220,7 @@ function showDuplicateWarningDialog(newData, duplicates) {
                 <input class="form-control" value="${escapeHtml(existing.name)}" disabled style="background: transparent; border: none; padding: 5px; height: auto;">
             </div>
             <div class="form-group" style="margin-bottom: 8px;">
-                <label class="dialog-label-fixed"><i class="fa-solid fa-id-card"></i> ID(s)</label>
+                <label class="dialog-label-fixed"><i class="fa-solid fa-id-card"></i> Card ID(s)</label>
                 <input class="form-control" value="${escapeHtml(existingIdsDisplay)}" disabled style="background: transparent; border: none; padding: 5px; height: auto;">
             </div>
             <div class="form-group" style="margin-bottom: 8px;">
@@ -5234,7 +5250,7 @@ function showDuplicateWarningDialog(newData, duplicates) {
         </div>
         
         <div class="form-group" style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
-            <label class="dialog-label-fixed"><i class="fa-solid fa-id-card"></i> ID</label>
+            <label class="dialog-label-fixed"><i class="fa-solid fa-id-card"></i> Card ID</label>
             <input class="form-control" value="${escapeHtml(newStudentId)}" disabled style="flex: 1;">
             ${uidActionHTML}
         </div>
@@ -6582,7 +6598,7 @@ function showRejectDialog(registration) {
         firstName = registration.name.split(' ')[0];
         greeting = `Dear ${firstName},`;
     }
-    const defaultMessage = `I am writing to inform you that your application for your Student ID Card has been rejected. This is typically because the information provided was incorrect or incomplete.\n\nPlease submit your registration again, ensuring all details are correct.`;
+    const defaultMessage = `I am writing to inform you that your application for your card has been rejected. This is typically because the information provided was incorrect or incomplete.\n\nPlease submit your registration again, ensuring all details are correct.`;
 
     dialog.innerHTML = `
     <h3 class="dialog-title">Reject Application</h3>
@@ -8592,14 +8608,14 @@ function showAddEntryDialog() {
             <div class="form-group">
                 <label class="dialog-label-fixed" for="add-hardware-uid"><i class="fa-solid fa-wifi"></i> UID</label>
                 <div class="admin-input-wrapper" style="margin:0; width:100%;">
-                    <input type="text" id="add-hardware-uid" class="form-control" placeholder="04:a2:3f:8a">
+                    <input type="text" id="add-hardware-uid" class="form-control" placeholder="Optional legacy card UID">
                     ${nfcSupported ? '<button class="btn-blue btn-icon btn-sm scan-uid-btn" title="Scan UID" style="border-radius:6px;"><i class="fa-solid fa-wifi"></i></button>' : ''}
                 </div>
             </div>
 
             <div class="form-group">
-                <label class="dialog-label-fixed" for="add-student-id"><i class="fa-solid fa-id-card"></i> ID</label>
-                <input type="text" id="add-student-id" class="form-control" placeholder="Auto-calculated from UID" disabled style="opacity:0.75; cursor:not-allowed; background:rgba(0,0,0,0.04);">
+                <label class="dialog-label-fixed" for="add-student-id"><i class="fa-solid fa-id-card"></i> Card ID</label>
+                <input type="text" id="add-student-id" class="form-control" placeholder="Card ID">
             </div>
             
             <div id="nfc-status-container" style="margin-top:10px;"></div>
@@ -8625,11 +8641,14 @@ function showAddEntryDialog() {
     const nfcStatusContainer = dialog.querySelector('#nfc-status-container');
     const scanBtn = dialog.querySelector('.scan-uid-btn');
 
-    // Real-time calculation from UID to ID
+    // Legacy cards can fill an empty ID; an IT-supplied ID remains independent.
     if (hwInput && idInput) {
+        let generatedId = '';
         hwInput.addEventListener('input', () => {
-            const raw = hwInput.value.trim();
-            idInput.value = convertUidToExternalId(raw) || '';
+            if (!idInput.value || idInput.value === generatedId) {
+                generatedId = convertUidToExternalId(hwInput.value.trim()) || '';
+                idInput.value = generatedId;
+            }
         });
     }
 
@@ -8670,7 +8689,7 @@ function showAddEntryDialog() {
         const rawHw = hwInput.value.trim();
         const rawId = idInput.value.trim();
         const uid = rawId || convertUidToExternalId(rawHw) || rawHw;
-        const hardwareUid = rawHw || convertExternalIdToUid(rawId) || rawId;
+        const hardwareUid = rawHw;
 
         let isValid = true;
         if (name === '') { showInputError(nameInput, 'Name is required.'); isValid = false; }
@@ -8796,34 +8815,36 @@ function editDatabaseEntry(dbKey) {
         uidGroup.setAttribute('class', 'uid-edit-row');
         uidGroup.style.cssText = 'margin-bottom:12px; background:rgba(0,0,0,0.02); padding:10px 12px; border-radius:8px; border:1px solid rgba(0,0,0,0.06);';
         
-        const initHw = hwVal || convertExternalIdToUid(idVal);
+        const initHw = hwVal;
         const initId = idVal || convertUidToExternalId(hwVal);
 
         uidGroup.innerHTML = `
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-                <span style="font-weight:600; font-size:0.85em; opacity:0.8;"><i class="fa-solid fa-id-card"></i> UID & ID Pair</span>
+                <span style="font-weight:600; font-size:0.85em; opacity:0.8;"><i class="fa-solid fa-id-card"></i> Card ID</span>
                 <button type="button" class="btn-red btn-sm remove-uid-btn" title="Remove" style="padding:3px 8px; border-radius:4px; font-size:0.8em; display:inline-flex; align-items:center; gap:4px; height:auto;"><i class="fa-solid fa-trash-can"></i> Remove</button>
             </div>
             <div class="form-group" style="margin-bottom:8px;">
                 <label class="dialog-label-fixed" style="width:90px; min-width:90px;"><i class="fa-solid fa-wifi"></i> UID</label>
                 <div style="flex-grow:1; display:flex; gap:6px;">
-                    <input type="text" class="form-control hw-uid-input" value="${escapeHtml(initHw)}" placeholder="04:a2:3f:8a">
+                    <input type="text" class="form-control hw-uid-input" value="${escapeHtml(initHw)}" placeholder="Optional legacy card UID">
                     ${nfcSupported ? '<button class="btn-blue btn-icon btn-sm scan-uid-btn" title="Scan UID" style="border-radius:6px;"><i class="fa-solid fa-wifi"></i></button>' : ''}
                 </div>
             </div>
             <div class="form-group" style="margin-bottom:0;">
-                <label class="dialog-label-fixed" style="width:90px; min-width:90px;"><i class="fa-solid fa-id-card"></i> ID</label>
-                <input type="text" class="form-control student-id-input" value="${escapeHtml(initId)}" placeholder="Auto-calculated from UID" disabled style="opacity:0.75; cursor:not-allowed; background:rgba(0,0,0,0.04);">
+                <label class="dialog-label-fixed" style="width:90px; min-width:90px;"><i class="fa-solid fa-id-card"></i> Card ID</label>
+                <input type="text" class="form-control student-id-input" value="${escapeHtml(initId)}" placeholder="Card ID">
             </div>`;
         uidListContainer.appendChild(uidGroup);
 
         const hwInputEl = uidGroup.querySelector('.hw-uid-input');
         const idInputEl = uidGroup.querySelector('.student-id-input');
 
-        // Real-time calculation from UID to ID
+        let generatedId = '';
         hwInputEl.addEventListener('input', () => {
-            const raw = hwInputEl.value.trim();
-            idInputEl.value = convertUidToExternalId(raw) || '';
+            if (!idInputEl.value || idInputEl.value === generatedId) {
+                generatedId = convertUidToExternalId(hwInputEl.value.trim()) || '';
+                idInputEl.value = generatedId;
+            }
         });
 
         uidGroup.querySelector('.remove-uid-btn').addEventListener('click', () => {
@@ -8901,7 +8922,7 @@ function editDatabaseEntry(dbKey) {
             const rawId = idEl.value.trim();
 
             const studentId = rawId || convertUidToExternalId(rawHw);
-            const hardwareUid = rawHw || convertExternalIdToUid(rawId);
+            const hardwareUid = rawHw;
 
             if (!studentId && !hardwareUid) {
                 showInputError(idEl, 'At least one ID or UID is required.');
@@ -9517,7 +9538,7 @@ function showEditLogDialog(group) {
         </div>
         ${isGlobalAdmin ? `
         <div class="form-group">
-            <label class="dialog-label-fixed"><i class="fa-solid fa-id-card"></i> ID</label>
+            <label class="dialog-label-fixed"><i class="fa-solid fa-id-card"></i> Card ID</label>
             <input type="text" id="edit-student-id" class="form-control" value="${escapeHtml(idDisplay)}" disabled>
         </div>
         <div class="form-group">
@@ -10151,110 +10172,252 @@ function handleExcelFile(event) {
     reader.onload = function (e) {
         try {
             const data = new Uint8Array(e.target.result);
-            const workbook = XLSX.read(data, { type: 'array' });
-            const firstSheetName = workbook.SheetNames[0];
-            const worksheet = workbook.Sheets[firstSheetName];
-            const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }); // Read as array of arrays
-
-            const excelList = [];
-            // Skip header row (index 0)
-            for (let i = 1; i < jsonData.length; i++) {
-                const row = jsonData[i];
-                if (row && row.length >= 2) {
-                    const name = row[0];
-                    const rawUid = String(row[1]).trim();
-                    const convertedUid = convertUidToExternalId(rawUid);
-                    const email = row[2] ? String(row[2]).trim() : '';
-
-                    if (name && convertedUid) {
-                        excelList.push({
-                            name: String(name).trim(),
-                            email: email,
-                            uids: [convertedUid]
-                        });
-                    }
-                }
-            }
-
-            if (excelList.length === 0) {
-                return showNotification('error', 'Import Failed', 'Could not find valid student Name and UID in the file.');
-            }
-            showDatabaseImportDialog(excelList);
+            const workbook = XLSX.read(data, { type: 'array', raw: true });
+            showStudentColumnMappingDialog(workbook, file.name);
         } catch (error) {
             console.error('Excel import error:', error);
-            showNotification('error', 'Import Failed', 'Could not process the Excel file.');
+            showNotification('error', 'Import Failed', escapeHtml(error.message || 'Could not process the student file.'));
         }
     };
+    reader.onerror = () => showNotification('error', 'Import Failed', 'Failed to read the student file.');
     reader.readAsArrayBuffer(file);
     event.target.value = '';
 }
 
+function getStudentWorksheetRows(workbook, sheetName) {
+    const worksheet = workbook.Sheets[sheetName];
+    if (!worksheet?.['!ref']) return [];
+    // Start at A1 so column letters and error row numbers match the original file.
+    const range = { s: { r: 0, c: 0 }, e: XLSX.utils.decode_range(worksheet['!ref']).e };
+    return XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: false, defval: '', blankrows: true, range });
+}
+
+function showStudentColumnMappingDialog(workbook, fileName = '') {
+    if (!isAdmin) return;
+    if (!workbook.SheetNames.length) throw new Error('No worksheets were found in this file.');
+    const backdrop = document.createElement('div');
+    backdrop.className = 'dialog-backdrop';
+    backdrop.innerHTML = `<div class="dialog" role="dialog" aria-modal="true" aria-labelledby="import-mapping-title">
+        <h3 class="dialog-title" id="import-mapping-title"><i class="fa-solid fa-file-import"></i> Import Students</h3>
+        <div class="dialog-content">
+            <p>${escapeHtml(fileName)}${fileName ? '<br>' : ''}Choose a sheet and match its columns.</p>
+            <div class="form-group">
+                <label class="dialog-label-fixed" for="import-sheet-select"><i class="fa-solid fa-table"></i> Worksheet</label>
+                <select id="import-sheet-select" class="form-control">${workbook.SheetNames.map((name, index) => `<option value="${index}">${escapeHtml(name)}</option>`).join('')}</select>
+            </div>
+            <div class="form-group">
+                <label class="dialog-label-fixed" for="import-start-row" id="import-row-label">Header Row</label>
+                <input type="number" id="import-start-row" class="form-control" min="1" step="1" value="1">
+            </div>
+            <div class="form-group">
+                <label for="import-has-headers" style="width:auto;"><input type="checkbox" id="import-has-headers" checked> This row contains column names</label>
+            </div>
+            <div class="form-section-title">Columns</div>
+            <div class="form-group">
+                <label class="dialog-label-fixed" for="import-map-name"><i class="fa-solid fa-user"></i> Name</label>
+                <select id="import-map-name" class="form-control"></select>
+            </div>
+            <div class="form-group">
+                <label class="dialog-label-fixed" for="import-map-card"><i class="fa-solid fa-id-card"></i> Card ID</label>
+                <select id="import-map-card" class="form-control"></select>
+            </div>
+            <div class="form-group">
+                <label class="dialog-label-fixed" for="import-map-email"><i class="fa-solid fa-at"></i> Email</label>
+                <select id="import-map-email" class="form-control"></select>
+            </div>
+            <div class="form-section-title">Import Preview</div>
+            <p id="import-preview-count" role="status"></p>
+            <div class="table-container"><table class="database-table">
+                <thead><tr><th>Row</th><th>Name</th><th>Card ID</th><th>Email</th></tr></thead>
+                <tbody id="import-mapping-preview"></tbody>
+            </table></div>
+            <p id="import-mapping-error" class="error-message" role="alert" hidden></p>
+        </div>
+        <div class="dialog-actions">
+            <button type="button" id="cancel-import-mapping" class="btn-red"><i class="fa-solid fa-xmark"></i> Cancel</button>
+            <button type="button" id="continue-import-mapping" class="btn-green"><i class="fa-solid fa-arrow-right"></i> Continue</button>
+        </div></div>`;
+    document.body.appendChild(backdrop);
+    const sheetSelect = backdrop.querySelector('#import-sheet-select');
+    const rowInput = backdrop.querySelector('#import-start-row');
+    const headerCheck = backdrop.querySelector('#import-has-headers');
+    const selects = { name: backdrop.querySelector('#import-map-name'), cardId: backdrop.querySelector('#import-map-card'), email: backdrop.querySelector('#import-map-email') };
+    const previewBody = backdrop.querySelector('#import-mapping-preview');
+    const previewCount = backdrop.querySelector('#import-preview-count');
+    const errorText = backdrop.querySelector('#import-mapping-error');
+    const nextButton = backdrop.querySelector('#continue-import-mapping');
+    let rows = [];
+    const nonempty = row => row.some(value => String(value ?? '').trim());
+    const options = () => ({ startRow: Number(rowInput.value) - 1, hasHeaders: headerCheck.checked,
+        mapping: Object.fromEntries(Object.entries(selects).map(([field, select]) => [field, Number(select.value)])) });
+    const showError = error => { errorText.textContent = error.message; errorText.hidden = false; };
+
+    const renderPreview = () => {
+        const settings = options();
+        const firstDataRow = settings.startRow + (settings.hasHeaders ? 1 : 0);
+        const validRow = Number.isInteger(settings.startRow) && settings.startRow >= 0 && settings.startRow < rows.length;
+        const sourceRows = validRow ? rows.map((row, index) => ({ row, index })).filter(item => item.index >= firstDataRow && nonempty(item.row)) : [];
+        // Show partially mapped values too, so each selection is immediately visible.
+        let preview = sourceRows.slice(0, 5).map(({ row, index }) => ({ rowNumber: index + 1,
+            name: String(row[settings.mapping.name] ?? ''), uids: [String(row[settings.mapping.cardId] ?? '')],
+            email: String(row[settings.mapping.email] ?? '') }));
+        errorText.hidden = true;
+        nextButton.disabled = false;
+        try {
+            preview = StandoData.previewStudentRows(rows, settings);
+        } catch (error) {
+            nextButton.disabled = true;
+            showError(error);
+        }
+        previewBody.innerHTML = preview.map(student => `<tr><td>${student.rowNumber}</td><td>${escapeHtml(student.name) || '—'}</td><td>${escapeHtml(student.uids.join('; ')) || '—'}</td><td>${escapeHtml(student.email) || '—'}</td></tr>`).join('');
+        previewCount.textContent = sourceRows.length ? `Showing ${preview.length} of ${sourceRows.length} rows.` : 'No data rows in this selection.';
+    };
+
+    const populateColumns = (suggest = true) => {
+        const settings = options();
+        const header = settings.hasHeaders ? (rows[settings.startRow] || []) : [];
+        const sample = rows.slice(settings.startRow + (settings.hasHeaders ? 1 : 0)).find(nonempty) || [];
+        const width = rows.reduce((max, row) => Math.max(max, row.length), 0);
+        const detected = StandoData.detectStudentColumns(header);
+        const suggestions = { name: detected.name, cardId: detected.cardId >= 0 ? detected.cardId : detected.legacyUid, email: detected.email };
+        const columnsHtml = Array.from({ length: width }, (_, index) => {
+            const heading = String(header[index] ?? '').trim();
+            const example = String(sample[index] ?? '').trim();
+            const label = `${XLSX.utils.encode_col(index)}${heading ? ' — ' + heading : ''}${example ? ' · ' + example : ''}`;
+            return `<option value="${index}">${escapeHtml(label.slice(0, 120))}</option>`;
+        }).join('');
+        Object.entries(selects).forEach(([field, select]) => {
+            const value = suggest ? suggestions[field] : Number(select.value);
+            select.innerHTML = `<option value="-1">${field === 'name' ? 'Choose a column' : 'Not imported'}</option>` + columnsHtml;
+            select.value = String(value >= 0 && value < width ? value : -1);
+        });
+        renderPreview();
+    };
+
+    const loadSheet = () => {
+        try {
+            rows = getStudentWorksheetRows(workbook, workbook.SheetNames[Number(sheetSelect.value)]);
+            const firstNonempty = rows.findIndex(nonempty);
+            // Suggest a recognizable header while allowing title rows and arbitrary headings.
+            const detectedRow = rows.slice(0, 25).findIndex(row => {
+                const columns = StandoData.detectStudentColumns(row);
+                return columns.name >= 0 && (columns.cardId >= 0 || columns.legacyUid >= 0 || columns.email >= 0);
+            });
+            rowInput.max = String(Math.max(1, rows.length));
+            rowInput.value = String((detectedRow >= 0 ? detectedRow : Math.max(0, firstNonempty)) + 1);
+            headerCheck.checked = true;
+            backdrop.querySelector('#import-row-label').textContent = 'Header Row';
+            populateColumns();
+        } catch (error) {
+            rows = [];
+            previewBody.innerHTML = '';
+            previewCount.textContent = 'This sheet could not be read.';
+            nextButton.disabled = true;
+            showError(error);
+        }
+    };
+    sheetSelect.onchange = loadSheet;
+    rowInput.oninput = () => populateColumns(headerCheck.checked);
+    headerCheck.onchange = () => {
+        backdrop.querySelector('#import-row-label').textContent = headerCheck.checked ? 'Header Row' : 'First Data Row';
+        populateColumns(false);
+    };
+    Object.values(selects).forEach(select => select.onchange = renderPreview);
+    backdrop.querySelector('#cancel-import-mapping').onclick = () => backdrop.remove();
+    nextButton.onclick = () => {
+        try {
+            const students = StandoData.parseStudentRows(rows, options());
+            showDatabaseImportDialog(students, () => document.body.appendChild(backdrop));
+            backdrop.remove();
+        } catch (error) { showError(error); }
+    };
+    const firstSheet = workbook.SheetNames.findIndex(name => workbook.Sheets[name]?.['!ref']);
+    sheetSelect.value = String(Math.max(0, firstSheet));
+    loadSheet();
+}
+
 /**
  * Show import dialog for database Excel data.
- * @param {Array} excelList - Array of { name, email, uids } student objects from Excel.
+ * @param {Array} excelList - Validated student objects, including optional hardware_uids.
  */
-function showDatabaseImportDialog(excelList) {
+function showDatabaseImportDialog(excelList, onBack = null) {
     const dialogBackdrop = document.createElement('div');
     dialogBackdrop.setAttribute('class', 'dialog-backdrop');
     const dialog = document.createElement('div');
     dialog.setAttribute('class', 'dialog');
     dialog.setAttribute('role', 'dialog');
     dialog.setAttribute('aria-modal', 'true');
-
+    dialog.setAttribute('aria-labelledby', 'student-import-review-title');
     dialog.innerHTML = `
-        <h3 class="dialog-title">Import Student Database</h3>
-        <div class="dialog-content"><p>Found ${excelList.length} student entries in the Excel file. How would you like to import them?</p>
-        </div><div class="dialog-actions">
-            <button id="merge-db-btn" class="btn-blue">Merge</button>
-            <button id="replace-db-btn" class="btn-orange">Replace</button>
-            <button id="cancel-db-import-btn" class="btn-red">Cancel</button>
+        <h3 class="dialog-title" id="student-import-review-title"><i class="fa-solid fa-file-import"></i> Import Students</h3>
+        <div class="dialog-content">
+            <p><strong>${excelList.length} students</strong>${excelList.length > 5 ? ' · Previewing first 5' : ''}</p>
+            <div class="table-container"><table class="database-table"><thead><tr><th>Name</th><th>Card ID</th><th>Email</th></tr></thead><tbody>
+                ${excelList.slice(0, 5).map(student => `<tr><td>${escapeHtml(student.name)}</td><td>${escapeHtml(student.uids.join('; '))}</td><td>${escapeHtml(student.email)}</td></tr>`).join('')}
+            </tbody></table></div>
+            <p>Merge adds new students and updates matching IDs or emails. Replace All replaces the entire list.</p>
+            <p id="student-import-status" role="status" hidden></p>
+        </div>
+        <div class="dialog-actions">
+            ${onBack ? '<button type="button" id="back-db-import-btn" class="btn-blue"><i class="fa-solid fa-arrow-left"></i> Back</button>' : ''}
+            <button type="button" id="cancel-db-import-btn" class="btn-red"><i class="fa-solid fa-xmark"></i> Cancel</button>
+            <button type="button" id="replace-db-btn" class="btn-orange"><i class="fa-solid fa-arrows-rotate"></i> Replace All</button>
+            <button type="button" id="merge-db-btn" class="btn-green"><i class="fa-solid fa-code-merge"></i> Merge</button>
         </div>
     `;
     dialogBackdrop.appendChild(dialog);
     document.body.appendChild(dialogBackdrop);
 
-    document.getElementById('merge-db-btn').addEventListener('click', () => {
-        let newCount = 0;
-        excelList.forEach(item => {
-            const exists = Object.values(databaseMap).some(s =>
-                (item.email && s.email && s.email.toLowerCase() === item.email.toLowerCase()) ||
-                (s.uids && s.uids.some(u => item.uids.includes(u)))
-            );
-            if (!exists) {
-                const newKey = `import_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
-                databaseMap[newKey] = item;
-                newCount++;
+    let saving = false;
+    let savedPlan = null;
+    const apply = async replace => {
+        if (saving || !isSignedIn || !isAdmin) return;
+        const status = dialog.querySelector('#student-import-status');
+        status.hidden = false;
+        if (!isOnline) { status.textContent = 'Connect to the internet to save this student list.'; return; }
+        saving = true;
+        dialog.querySelectorAll('button').forEach(button => button.disabled = true);
+        status.textContent = savedPlan ? 'Reloading saved students…' : 'Saving students…';
+        try {
+            if (!savedPlan) {
+                const plan = StandoData.planStudentImport(databaseMap, excelList, replace);
+                const students = Object.fromEntries(Object.entries(plan.database).filter(([, student]) => !student.isStaff));
+                const result = await callWebApp('syncDatabase_Admin', { databaseData: students }, 'POST');
+                if (result?.result !== 'success') throw new Error(result?.message || 'Student import failed.');
+                savedPlan = plan;
+                invalidateDatabaseCache();
             }
-        });
-        window.buildUIDToPrimaryUidMap();
-        if (isOnline) {
-            syncDatabaseToSheet();
-            refreshAdminViews();
+            // Reload server keys before enabling edits/deletes on newly imported students.
+            const freshDatabase = await callWebApp('getDatabase');
+            databaseMap = freshDatabase;
+            window.buildUIDToPrimaryUidMap();
+            updateUI();
+            dialogBackdrop.remove();
+            showNotification('success', 'Import Complete', `${savedPlan.added} students added, ${savedPlan.updated} updated.`);
+        } catch (error) {
+            status.textContent = savedPlan
+                ? 'Students were saved, but reloading failed. Select Reload students to retry.'
+                : `Import failed: ${error.message}`;
+        } finally {
+            saving = false;
+            dialog.querySelectorAll('button').forEach(button => button.disabled = false);
+            if (savedPlan) {
+                dialog.querySelector('#merge-db-btn').textContent = 'Reload students';
+                dialog.querySelector('#replace-db-btn').disabled = true;
+                if (backButton) backButton.disabled = true;
+            }
         }
-        updateUI();
-        showNotification('success', 'Database Merged', `Added ${newCount} new entries.`);
-        document.body.removeChild(dialogBackdrop);
+    };
+    dialog.querySelector('#merge-db-btn').onclick = () => apply(false);
+    dialog.querySelector('#replace-db-btn').onclick = () => showConfirmationDialog({
+        title: '<i class="fa-solid fa-arrows-rotate"></i> Replace Student List?',
+        message: 'This file will replace the entire student list. Students missing from the file will be deleted.',
+        cancelText: '<i class="fa-solid fa-xmark"></i> Cancel',
+        confirmText: '<i class="fa-solid fa-arrows-rotate"></i> Replace All', isDestructive: true, onConfirm: () => apply(true)
     });
-
-    document.getElementById('replace-db-btn').addEventListener('click', () => {
-        const newMap = {};
-        excelList.forEach((item, idx) => {
-            newMap[`import_${idx + 1}`] = item;
-        });
-        databaseMap = newMap;
-        window.buildUIDToPrimaryUidMap();
-        if (isOnline) {
-            syncDatabaseToSheet();
-            refreshAdminViews();
-        }
-        updateUI();
-        showNotification('success', 'Database Replaced', `Database now contains ${excelList.length} entries.`);
-        document.body.removeChild(dialogBackdrop);
-    });
-
-    document.getElementById('cancel-db-import-btn').addEventListener('click', () => {
-        document.body.removeChild(dialogBackdrop);
-    });
+    dialog.querySelector('#cancel-db-import-btn').onclick = () => { if (!saving) dialogBackdrop.remove(); };
+    const backButton = dialog.querySelector('#back-db-import-btn');
+    if (backButton) backButton.onclick = () => { if (!saving && !savedPlan) { dialogBackdrop.remove(); onBack(); } };
 }
 
 /**
@@ -10315,12 +10478,13 @@ function handleImportFile(event) {
 function showImportDialog(importedLogs, courseName = currentCourse) {
     const backdrop = document.createElement('div');
     backdrop.className = 'dialog-backdrop';
-    backdrop.innerHTML = '<div class="dialog" role="dialog" aria-modal="true">' +
-        '<h3 class="dialog-title">Import Logs</h3><div class="dialog-content"><p>Import ' + importedLogs.length +
-        ' entries into ' + escapeHtml(courseName.replace(/_/g, ' ')) + '?</p></div>' +
-        '<div class="dialog-actions"><button id="merge-logs-btn" class="btn-green">Merge with Existing</button>' +
-        '<button id="replace-logs-btn" class="btn-orange">Replace All</button>' +
-        '<button id="cancel-import-btn" class="btn-red">Cancel</button></div></div>';
+    backdrop.innerHTML = '<div class="dialog" role="dialog" aria-modal="true" aria-labelledby="logs-import-title">' +
+        '<h3 class="dialog-title" id="logs-import-title"><i class="fa-solid fa-file-import"></i> Import Logs</h3><div class="dialog-content">' +
+        '<p><strong>' + importedLogs.length + ' logs</strong> · ' + escapeHtml(getCleanCourseCode(courseName)) + '</p>' +
+        '<p>Merge adds new logs and keeps existing entries. Replace All replaces this course\'s logs.</p></div>' +
+        '<div class="dialog-actions"><button type="button" id="cancel-import-btn" class="btn-red"><i class="fa-solid fa-xmark"></i> Cancel</button>' +
+        '<button type="button" id="replace-logs-btn" class="btn-orange"><i class="fa-solid fa-arrows-rotate"></i> Replace All</button>' +
+        '<button type="button" id="merge-logs-btn" class="btn-green"><i class="fa-solid fa-code-merge"></i> Merge</button></div></div>';
     document.body.appendChild(backdrop);
     const apply = replace => {
         if (!isSignedIn || !isAdmin || !isAdminForCourse(courseName)) return;
@@ -10340,8 +10504,9 @@ function showImportDialog(importedLogs, courseName = currentCourse) {
     };
     backdrop.querySelector('#merge-logs-btn').onclick = () => apply(false);
     backdrop.querySelector('#replace-logs-btn').onclick = () => showConfirmationDialog({
-        title: 'Replace attendance logs?', message: 'Existing entries not in this file will be deleted from this course.',
-        confirmText: 'Replace All', isDestructive: true, onConfirm: () => apply(true)
+        title: '<i class="fa-solid fa-arrows-rotate"></i> Replace Attendance Logs?', message: 'Existing entries not in this file will be deleted from this course.',
+        cancelText: '<i class="fa-solid fa-xmark"></i> Cancel',
+        confirmText: '<i class="fa-solid fa-arrows-rotate"></i> Replace All', isDestructive: true, onConfirm: () => apply(true)
     });
     backdrop.querySelector('#cancel-import-btn').onclick = () => backdrop.remove();
 }
@@ -10882,7 +11047,7 @@ function showAddEntryFromLog(uid) {
             <input type="text" id="add-log-hardware-uid" class="form-control" placeholder="04:a2:3f:8a" value="${escapeHtml(initHw)}">
         </div>
         <div class="form-group">
-            <label class="dialog-label-fixed" for="add-log-student-id"><i class="fa-solid fa-id-card"></i> ID:</label>
+            <label class="dialog-label-fixed" for="add-log-student-id"><i class="fa-solid fa-id-card"></i> Card ID:</label>
             <input type="text" id="add-log-student-id" class="form-control" placeholder="Auto-calculated from UID" value="${escapeHtml(initId)}" disabled style="opacity:0.75; cursor:not-allowed; background:rgba(0,0,0,0.04);">
         </div>
         </div> <div class="dialog-actions">
@@ -11066,9 +11231,7 @@ function updateDatabaseList() {
             : `<span style="opacity:0.4;">—</span>`;
 
         // UID(s)
-        const hwList = (data.hardware_uids && data.hardware_uids.length > 0)
-            ? data.hardware_uids
-            : (data.uids || []).map(convertExternalIdToUid).filter(Boolean);
+        const hwList = data.hardware_uids || [];
         const hwBadges = hwList.length > 0
             ? hwList.map(uid => `<span class="uid-badge">${escapeHtml(uid)}</span>`).join(' ')
             : `<span style="opacity:0.4;">—</span>`;
@@ -11095,17 +11258,7 @@ function updateDatabaseList() {
 * Extracts a clean human-readable course code from a system name, stripping archive/EIS ID suffixes.
 */
 function getCleanCourseCode(courseName, eisId) {
-    if (!courseName) return '';
-    let name = courseName;
-    const effectiveEisId = eisId || (typeof courseInfoMap !== 'undefined' ? courseInfoMap[courseName]?.eisId : null);
-    if (effectiveEisId) {
-        const eisRegex = new RegExp(`_${effectiveEisId}$`, 'i');
-        name = name.replace(eisRegex, '');
-    } else {
-        name = name.replace(/_EIS_\d+$/i, '').replace(/_\d{4,7}$/i, '');
-    }
-    name = name.replace(/_archived$/i, '');
-    return name.replace(/_/g, ' ');
+    return StandoData.cleanCourseCode(courseName, eisId || courseInfoMap[courseName]?.eisId);
 }
 
 /**
@@ -12145,6 +12298,11 @@ function populateCourseButtons() {
 
         const cleanCourseName = getCleanCourseCode(course, courseInfoMap[course]?.eisId);
         button.innerHTML = `<i class="fa-solid fa-table-list"></i>&nbsp; ${escapeHtml(cleanCourseName)}`;
+        if (coursesToDisplay.some(other => other !== course && getCleanCourseCode(other) === cleanCourseName)) {
+            const offering = courseInfoMap[course]?.eisId || courseInfoMap[course]?.startDate || course;
+            button.innerHTML += ` <small class="course-offering-id">${escapeHtml(String(offering))}</small>`;
+        }
+        button.title = course.replace(/_/g, ' ');
         button.addEventListener('click', () => selectCourseButton(course));
         courseButtonsContainer.appendChild(button);
     });
@@ -12169,7 +12327,7 @@ function selectCourseButton(course) {
         btn.classList.remove('active');
         btn.classList.remove('selecting');
         // Check dataset course or inner text to find the correct button to activate
-        if (btn.dataset.course === course || btn.innerText.trim().replace(/\s+/g, '_') === course) {
+        if (btn.dataset.course === course || (!btn.dataset.course && btn.innerText.trim().replace(/\s+/g, '_') === course)) {
             btn.classList.add('selecting'); // Add selecting feedback
             btn.classList.add('active');
             // Remove selecting class after a short delay

@@ -1,3 +1,5 @@
+        .course-offering-id { margin-left: 6px; padding-left: 6px; border-left: 1px solid currentColor; opacity: 0.75; font-size: 0.75em; }
+
         :root {
             --primary-color: #3949ab;
             --primary-dark: #1a237e;
@@ -2581,7 +2583,7 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            flex-wrap: nowrap;
+            flex-wrap: wrap;
             gap: 15px;
             margin-bottom: 15px;
         }
@@ -2604,8 +2606,7 @@
         .logs-actions,
         .database-actions {
             display: flex;
-            flex-wrap: nowrap;
-            /* Forces buttons into a single row */
+            flex-wrap: wrap;
             gap: 1px;
         }
 
@@ -2620,6 +2621,35 @@
             height: 32px;
             padding: 0;
             font-size: 0.85em;
+        }
+
+        .logs-actions .btn-icon,
+        .database-actions .btn-icon {
+            width: auto;
+            min-width: 32px;
+            padding: 0 10px;
+            gap: 6px;
+            white-space: nowrap;
+            transition: all var(--transition-speed) var(--transition-curve);
+        }
+
+        body.is-admin .logs-actions .btn-icon,
+        body.is-admin .database-actions .btn-icon {
+            display: inline-flex !important;
+        }
+
+        @media (max-width: 768px) {
+            .logs-actions .action-label,
+            .database-actions .action-label {
+                display: none;
+            }
+
+            .logs-actions .btn-icon,
+            .database-actions .btn-icon {
+                width: 32px;
+                padding: 0;
+                gap: 0;
+            }
         }
 
         .logs-table tr.day-separator .btn-icon:active {
@@ -2649,6 +2679,14 @@
         .database-actions .btn:last-child {
             border-top-right-radius: var(--border-radius);
             border-bottom-right-radius: var(--border-radius);
+        }
+
+        /* Hover rounds every corner to the same radius as the group's outer corners. */
+        .logs-actions .btn-icon:hover:not(:disabled),
+        .database-actions .btn-icon:hover:not(:disabled),
+        .logs-actions .btn-icon:focus-visible,
+        .database-actions .btn-icon:focus-visible {
+            border-radius: var(--border-radius);
         }
 
         .logs-table tr.day-separator .btn-icon:first-of-type {
@@ -3780,6 +3818,7 @@
         .dialog-actions {
             padding: 16px 24px;
             display: flex;
+            flex-wrap: wrap;
             justify-content: flex-end;
             gap: 12px;
             border-top: 1px solid rgba(0, 0, 0, 0.06);

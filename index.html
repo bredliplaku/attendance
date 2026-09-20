@@ -89,9 +89,9 @@
                             <i class="fa-solid fa-hand-point-up"></i>
                             <span class="btn-text"> Request for Permission</span>
                         </button>
-                        <button id="register-uid-btn" class="btn-sm" title="Register your Student ID Card">
+                        <button id="register-uid-btn" class="btn-sm" title="Register your card">
                             <i class="fa-solid fa-address-card"></i>
-                            <span class="btn-text"> Register Student ID</span>
+                            <span class="btn-text"> Register Card ID</span>
                         </button>
                         <img id="user-avatar" class="user-avatar" src="" alt="User Avatar" referrerpolicy="no-referrer">
                         <span id="user-name"></span>
@@ -235,22 +235,22 @@
                         <div class="logs-count" aria-live="polite"><span id="filtered-count">0</span> logs found
                         </div>
                         <div class="logs-actions">
-                            <button onclick="toggleBulkMode()" class="btn-icon admin-only" style="display: none;"
-                                title="Select Multiple"><i class="fa-solid fa-list-check"></i></button>
-                            <button id="import-btn" class="btn-blue btn-icon admin-only" style="display: none;"
-                                title="Import Logs"><i class="fa-solid fa-file-import"></i></button>
-                            <button id="export-btn" class="btn-blue btn-icon admin-only" style="display: none;" disabled
-                                title="Export Logs"><i class="fa-solid fa-file-export"></i></button>
-                            <button id="add-log-btn" class="btn-green btn-icon admin-only" style="display: none;"
-                                title="Add Log"><i class="fa-solid fa-plus"></i></button>
-                            <button id="clear-btn" class="btn-red btn-icon admin-only" style="display: none;" disabled
-                                title="Clear Logs"><i class="fa-solid fa-trash"></i></button>
+                            <button type="button" onclick="toggleBulkMode()" class="btn-icon admin-only" style="display: none;"
+                                title="Select logs" aria-label="Select logs"><i class="fa-solid fa-list-check" aria-hidden="true"></i><span class="action-label">Select</span></button>
+                            <button type="button" id="import-btn" class="btn-blue btn-icon admin-only" style="display: none;"
+                                title="Import logs" aria-label="Import logs"><i class="fa-solid fa-file-import" aria-hidden="true"></i><span class="action-label">Import</span></button>
+                            <button type="button" id="export-btn" class="btn-blue btn-icon admin-only" style="display: none;" disabled
+                                title="Export logs" aria-label="Export logs"><i class="fa-solid fa-file-export" aria-hidden="true"></i><span class="action-label">Export</span></button>
+                            <button type="button" id="add-log-btn" class="btn-green btn-icon admin-only" style="display: none;"
+                                title="Add log" aria-label="Add log"><i class="fa-solid fa-plus" aria-hidden="true"></i><span class="action-label">Add</span></button>
+                            <button type="button" id="clear-btn" class="btn-red btn-icon admin-only" style="display: none;" disabled
+                                title="Delete all logs" aria-label="Delete all logs"><i class="fa-solid fa-trash" aria-hidden="true"></i><span class="action-label">Delete All</span></button>
                         </div>
                     </div>
 
                     <!-- Hidden file inputs -->
-                    <input type="file" id="import-input" accept="application/json" style="display: none;">
-                    <input type="file" id="excel-input" accept=".xlsx,.xls" style="display: none;">
+                    <input type="file" id="import-input" accept=".json,application/json" style="display: none;">
+                    <input type="file" id="excel-input" accept=".xlsx,.xls,.csv" style="display: none;">
 
                     <!-- Pagination Controls for Logs -->
                     <div id="logs-pagination" class="pagination-controls" style="display: none;">
@@ -316,8 +316,8 @@
                         <select id="db-sort-select" class="sort-dropdown" aria-label="Sort students">
                             <option value="name-asc"> Name (A-Z)</option>
                             <option value="name-desc"> Name (Z-A)</option>
-                            <option value="id-asc"> ID (Asc)</option>
-                            <option value="id-desc"> ID (Desc)</option>
+                            <option value="id-asc"> Card ID (Asc)</option>
+                            <option value="id-desc"> Card ID (Desc)</option>
                             <option value="uid-asc"> UID (A-Z)</option>
                             <option value="uid-desc"> UID (Z-A)</option>
                             <option value="email-asc"> Email (A-Z)</option>
@@ -328,14 +328,14 @@
                     <div class="database-controls">
                         <div class="entry-count"><span id="db-entry-count">0</span> registered students</div>
                         <div class="database-actions">
-                            <button id="import-excel-btn" class="btn-blue btn-icon admin-only" style="display: none;"
-                                title="Import from Excel"><i class="fa-solid fa-file-import"></i></button>
-                            <button id="export-excel-btn" class="btn-blue btn-icon admin-only" style="display: none;"
-                                title="Export to Excel"><i class="fa-solid fa-file-export"></i></button>
-                            <button id="add-entry-btn" class="btn-green btn-icon admin-only" style="display: none;"
-                                title="Add Entry"><i class="fa-solid fa-plus"></i></button>
-                            <button id="clear-db-btn" class="btn-red btn-icon admin-only" style="display: none;"
-                                title="Clear Database"><i class="fa-solid fa-trash"></i></button>
+                            <button type="button" id="import-excel-btn" class="btn-blue btn-icon admin-only" style="display: none;"
+                                title="Import students" aria-label="Import students"><i class="fa-solid fa-file-import" aria-hidden="true"></i><span class="action-label">Import</span></button>
+                            <button type="button" id="export-excel-btn" class="btn-blue btn-icon admin-only" style="display: none;"
+                                title="Export students" aria-label="Export students"><i class="fa-solid fa-file-export" aria-hidden="true"></i><span class="action-label">Export</span></button>
+                            <button type="button" id="add-entry-btn" class="btn-green btn-icon admin-only" style="display: none;"
+                                title="Add student" aria-label="Add student"><i class="fa-solid fa-plus" aria-hidden="true"></i><span class="action-label">Add</span></button>
+                            <button type="button" id="clear-db-btn" class="btn-red btn-icon admin-only" style="display: none;"
+                                title="Delete all students" aria-label="Delete all students"><i class="fa-solid fa-trash" aria-hidden="true"></i><span class="action-label">Delete All</span></button>
                         </div>
                     </div>
 
@@ -359,11 +359,11 @@
                                             class="sort-icon fa-solid fa-sort-up"></i>
                                     </th>
                                     <th class="sortable id-column" data-sort="id">
-                                        <i class="fa-solid fa-id-card"></i> ID <i
+                                        <i class="fa-solid fa-id-card"></i> Card ID <i
                                             class="sort-icon fa-solid fa-sort"></i>
                                     </th>
                                     <th class="sortable uid-column" data-sort="uid">
-                                        <i class="fa-solid fa-wifi"></i> UID <i class="sort-icon fa-solid fa-sort"></i>
+                                        <i class="fa-solid fa-wifi"></i> Hardware UID <i class="sort-icon fa-solid fa-sort"></i>
                                     </th>
                                     <th class="sortable email-column" data-sort="email">
                                         <i class="fa-solid fa-envelope"></i> Email <i
@@ -379,7 +379,7 @@
                             <i class="fa-solid fa-database"
                                 style="font-size: 3em; color: #ccc; margin-bottom: 10px;"></i>
                             <p style="font-size: 1.1em; margin-bottom: 5px;">The database is empty.</p>
-                            <p style="font-size: 0.9em; color: #999;">Import an Excel file or add a new entry to get
+                            <p style="font-size: 0.9em; color: #999;">Import an Excel or CSV student list, or add a new entry to get
                                 started.</p>
                         </div>
                     </div>
@@ -440,6 +440,7 @@
 
     <!-- Supabase must load before scripts.js (creates the auth client at parse time) -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+    <script src="js/data-utils.js"></script>
     <script src="js/scripts.js"></script>
 
 </body>

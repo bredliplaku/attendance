@@ -46,6 +46,14 @@ To use the scanning features of STANDO, you require:
 * Google Chrome browser (support for WebNFC).
 * A valid organisational or registered Google Account.
 
+### Student list files
+
+Student List exports Excel files with **Name**, **Card ID**, **Email**, and **Hardware UID** columns. The import template contains **Name**, **Card ID**, and **Email**. Import also accepts CSV files and older **Name / UID / Email** or **Student ID** headers. When a file has both Card ID and Student ID, Card ID is used. Store card IDs as text to preserve leading zeros; separate multiple IDs with semicolons. Leave Hardware UID empty when IT supplies only card IDs and emails.
+
+Use **Import → Download template** for a blank roster, or choose an existing file. Select its worksheet, choose the header row (or turn off headers), and assign the **Name**, **Card ID**, and **Email** columns. Recognized headers are suggested automatically; the preview updates as you change the mapping. Name and at least one of Card ID or Email are required.
+
+Select **Continue** to review the students, then **Merge** to update matching IDs or emails while keeping existing card IDs, or **Replace All** to replace the student list after confirmation. **Back** returns to your column choices. Student imports require an internet connection and report success after saving and reloading the list.
+
 ## 🤝 Contributing
 
 Contributions are welcome from the community. Whether you are looking to fix a bug, enhance the integration scripts, or improve the UI, please feel free to fork the repository and submit a Pull Request.
