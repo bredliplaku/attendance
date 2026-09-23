@@ -1,5 +1,5 @@
 <div align="center">
-<img src="favicon.png" alt="Stando Logo" width="120" height="120" />
+<img src="favicon/favicon.svg?v=20260923" alt="Stando Logo" width="120" height="120" />
 
 # STANDO
 **S**mart **T**ap **A**ttendance **N**etwork & **D**ata **O**rganiser
