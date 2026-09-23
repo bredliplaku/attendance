@@ -1,74 +1,69 @@
 <div align="center">
-<img src="favicon.png" alt="STANDO Logo" width="120" height="120" />
+<img src="favicon.png" alt="Stando Logo" width="120" height="120" />
 
 # STANDO
 **S**mart **T**ap **A**ttendance **N**etwork & **D**ata **O**rganiser
 
-Efficient. Reliable. Smart.
-
 </div>
 
-## 📖 About STANDO
+## About
 
-STANDO is a personal project I developed to modernise and streamline attendance tracking, currently being applied actively within my courses. By leveraging existing infrastructure—specifically, NFC-enabled student ID cards—this digital initiative eliminates the inefficiencies and friction of traditional paper-based roll calls in the classroom.
+Stando replaces paper-based attendance with NFC. Students tap their ID cards on an Android phone and attendance is recorded instantly. No paper, no forged signatures, no manual data entry.
 
-Originally conceptualised to address environmental concerns (saving thousands of sheets of paper annually) and to ensure academic integrity (preventing signature forgery), the system has evolved into a highly practical daily tool. It automates the flow of data directly from the lecture room to official management systems, aligning perfectly with the vision of a sustainable, smart academic environment.
+Scan data is pushed straight into official management systems, with auto-filled event numbers, topics, and submission-ready PDF reports.
 
-## ✨ Key Features
+Part of [bredliplaku.com](https://bredliplaku.com).
 
-### 🎓 For Lecturers
-* **NFC Smart Scanning:** Instantly register attendance by tapping participant ID cards using any NFC-enabled Android device.
-* **Audio Feedback:** Distinct sound effects confirm successful scans without needing to constantly check the screen.
-* **Platform Integration:** Automated scripting populates official management platforms with session data, including auto-filled event numbers and topics.
-* **Offline Capability:** "Import/Export" functionality ensures attendance can be tracked and saved securely, even without an active internet connection.
-* **Automated Reporting:** Generates digital PDFs that match required organisational templates for electronic submission.
+## Features
 
-### 🧑‍🎓 For Attendees
-* **Transparency:** Students can sign in with their registered Google Account to view their personal attendance records for the course.
-* **Permission Requests:** A built-in form allows participants to digitally request leave (documenting reasons like health or emergencies) without needing physical paperwork.
-* **ID Registration:** Users can register their own ID cards directly via the mobile interface for approval.
+### For Lecturers
+* **NFC scanning:** tap a student ID card on any NFC-enabled Android device to register attendance.
+* **Audio feedback:** distinct sounds confirm scans without watching the screen.
+* **Platform integration:** scripts auto-populate official management platforms with session data.
+* **Offline mode:** import/export lets you track attendance without internet.
+* **PDF reports:** generates reports matching required organisational templates.
 
-## 🛠️ Technology Architecture
+### For Students
+* **View records:** sign in with a Google Account to check personal attendance.
+* **Request leave:** submit absence requests (health, emergencies, etc.) digitally.
+* **Register ID cards:** add your own card via the mobile interface for approval.
 
-STANDO is built as a lightweight, web-based solution to ensure broad accessibility and ease of deployment in a live classroom setting.
+## Tech Stack
 
-* **Core Stack:** HTML5, JavaScript (ES6+), CSS3.
-* **Hardware Interface:** Chrome NFC API (WebNFC) allows direct communication between the web application and NFC tags.
-* **Authentication:** Integrated with Google OAuth (Workspace or standard accounts).
-* **Data Management:** Automated scripts bridge the gap between raw scan data (Spreadsheets) and official management platforms.
-* **Compatibility:** Optimised for Android devices running Google Chrome (due to WebNFC API support).
+* HTML5, JavaScript (ES6+), CSS3
+* Chrome NFC API (WebNFC) for card reading
+* Google OAuth for authentication
+* Automated scripts to bridge scan data (Spreadsheets) → management platforms
+* Optimised for Android + Chrome (WebNFC requirement)
 
-## 🚀 Getting Started
+## Getting Started
 
-### Prerequisites
-To use the scanning features of STANDO, you require:
-* An Android device with NFC functionality.
-* Google Chrome browser (support for WebNFC).
-* A valid organisational or registered Google Account.
+You need:
+* An Android device with NFC
+* Google Chrome
+* A Google Account (Workspace or personal)
 
 ### Student list files
 
-Student List exports Excel files with **Name**, **Card ID**, **Email**, and **Hardware UID** columns. The import template contains **Name**, **Card ID**, and **Email**. Import also accepts CSV files and older **Name / UID / Email** or **Student ID** headers. When a file has both Card ID and Student ID, Card ID is used. Store card IDs as text to preserve leading zeros; separate multiple IDs with semicolons. Leave Hardware UID empty when IT supplies only card IDs and emails.
+Student List exports Excel files with **Name**, **Card ID**, **Email**, and **Hardware UID** columns. The import template has **Name**, **Card ID**, and **Email**. Import also accepts CSV and older **Name / UID / Email** or **Student ID** headers. When both Card ID and Student ID are present, Card ID wins. Store card IDs as text to keep leading zeros; separate multiple IDs with semicolons. Leave Hardware UID empty when IT only provides card IDs and emails.
 
-Use **Import → Download template** for a blank roster, or choose an existing file. Select its worksheet, choose the header row (or turn off headers), and assign the **Name**, **Card ID**, and **Email** columns. Recognized headers are suggested automatically; the preview updates as you change the mapping. Name and at least one of Card ID or Email are required.
+Use **Import → Download template** for a blank roster, or pick an existing file. Select its worksheet and header row (or turn headers off), then assign **Name**, **Card ID**, and **Email** columns. Recognized headers are suggested automatically and the preview updates as you change the mapping. Name plus at least one of Card ID or Email are required.
 
-Select **Continue** to review the students, then **Merge** to update matching IDs or emails while keeping existing card IDs, or **Replace All** to replace the student list after confirmation. **Back** returns to your column choices. Student imports require an internet connection and report success after saving and reloading the list.
+Hit **Continue** to review, then **Merge** (updates matching IDs/emails, keeps existing card IDs) or **Replace All** (replaces the whole list after confirmation). **Back** returns to column choices. Imports need internet and report success after saving.
 
-## 🤝 Contributing
+## Contributing
 
-Contributions are welcome from the community. Whether you are looking to fix a bug, enhance the integration scripts, or improve the UI, please feel free to fork the repository and submit a Pull Request.
+Contributions welcome. Bug fixes, integration improvements, UI tweaks. Fork the repo and open a PR.
 
-## 👥 The Team
-
-STANDO is proudly maintained and developed by our team:
+## The Team
 
 * **Creator:** Bredli Plaku
 * **Lead Developer:** Braian Plaku
 * **Ambassador:** Eriselda Goga
 
-## 📄 License
+## License
 
-This project is open-source and available under the MIT License. See the `LICENSE` file for more details.
+MIT License. See `LICENSE` for details.
 
 <div align="center">
 <small>© 2025-2026 Bredli Plaku. All Rights Reserved.</small>
