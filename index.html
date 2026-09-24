@@ -8,23 +8,41 @@
     <meta name="theme-color" content="#f4f4f4" />
     <!-- Apply the saved or system theme before the application loads. -->
     <style id="stando-startup-theme">
-      html { color-scheme: light; background: #f4f4f4; color: #333; }
-      html.dark-mode { color-scheme: dark; background: #000; color: #e0e0e0; }
-      @media (prefers-color-scheme: dark) {
-        html:not([data-stando-theme="light"]) { color-scheme: dark; background: #000; color: #e0e0e0; }
-      }
-      body { margin: 0; background: inherit; }
+        html {
+            color-scheme: light;
+            background: #f4f4f4;
+            color: #333;
+        }
+
+        html.dark-mode {
+            color-scheme: dark;
+            background: #000;
+            color: #e0e0e0;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            html:not([data-stando-theme="light"]) {
+                color-scheme: dark;
+                background: #000;
+                color: #e0e0e0;
+            }
+        }
+
+        body {
+            margin: 0;
+            background: inherit;
+        }
     </style>
     <script>
-      (function () {
-        let theme = 'auto';
-        try { theme = localStorage.getItem('theme') || 'auto'; } catch {}
-        if (!['auto', 'light', 'dark'].includes(theme)) theme = 'auto';
-        document.documentElement.dataset.standoTheme = theme;
-        const dark = theme === 'dark' || (theme === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
-        document.documentElement.classList.toggle('dark-mode', dark);
-        document.querySelector('meta[name="theme-color"]').content = dark ? '#000000' : '#f4f4f4';
-      })();
+        (function () {
+            let theme = 'auto';
+            try { theme = localStorage.getItem('theme') || 'auto'; } catch { }
+            if (!['auto', 'light', 'dark'].includes(theme)) theme = 'auto';
+            document.documentElement.dataset.standoTheme = theme;
+            const dark = theme === 'dark' || (theme === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
+            document.documentElement.classList.toggle('dark-mode', dark);
+            document.querySelector('meta[name="theme-color"]').content = dark ? '#000000' : '#f4f4f4';
+        })();
     </script>
     <link rel="icon" type="image/png" href="/favicon/favicon-96x96.png" sizes="96x96" />
     <link rel="icon" type="image/svg+xml" href="/favicon/favicon.svg" />
@@ -118,8 +136,8 @@
                             aria-label="Open profile"><span id="user-avatar" class="user-avatar"
                                 aria-hidden="true"></span><span id="user-name"></span></button>
                         <button type="button" id="logout-btn" class="btn-red" title="Sign out" aria-label="Sign out">
-                            <i class="fa-solid fa-right-from-bracket" aria-hidden="true"></i><span
-                                class="btn-text">Sign out</span>
+                            <i class="fa-solid fa-right-from-bracket" aria-hidden="true"></i><span class="btn-text">Sign
+                                out</span>
                         </button>
                     </div>
                 </div>
@@ -414,7 +432,8 @@
                                         class="fa-solid fa-ellipsis" aria-hidden="true"></i></button>
                                 <div class="row-menu-list" role="menu" hidden>
                                     <button type="button" role="menuitem" id="clear-db-btn" class="is-danger"><i
-                                            class="fa-solid fa-trash" aria-hidden="true"></i>Delete all students</button>
+                                            class="fa-solid fa-trash" aria-hidden="true"></i>Delete all
+                                        students</button>
                                 </div>
                             </div>
                         </div>
@@ -482,7 +501,7 @@
                     aria-label="Scan sounds" aria-pressed="true"><i class="fa-solid fa-volume-high"
                         aria-hidden="true"></i></button>
             </div>
-            <p style="font-size:0.7em"><i class="fa-regular fa-copyright"></i> 2023-<span id="currentYear"></span>
+            <p style="font-size:0.7em"><i class="fa-regular fa-copyright"></i> 2023–<span id="currentYear"></span>
                 Bredli Plaku. All Rights Reserved.</p>
         </footer>
     </div>
@@ -495,7 +514,8 @@
         </div>
         <div class="bulk-actions-group">
             <button type="button" onclick="performBulkAction('add1h')" class="btn-green btn-icon bulk-add"
-                title="Add +1 Hour" aria-label="Add one hour"><i class="fa-solid fa-plus" aria-hidden="true"></i></button>
+                title="Add +1 Hour" aria-label="Add one hour"><i class="fa-solid fa-plus"
+                    aria-hidden="true"></i></button>
             <button type="button" onclick="performBulkAction('sub1h')" class="btn-orange btn-icon bulk-remove"
                 title="Remove -1 Hour" aria-label="Remove one hour"><i class="fa-solid fa-minus"
                     aria-hidden="true"></i></button>
