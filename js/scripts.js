@@ -2003,6 +2003,8 @@ function showGlobalSettingsDialog() {
     dialogBackdrop.appendChild(dialog);
     document.body.appendChild(dialogBackdrop);
 
+    StandoWebsite.addDownloadControl(dialog.querySelector('#sect-courses'));
+
     // --- BOMB LOGIC (Restored) ---
     const profilePicContainer = dialog.querySelector('#admin-profile-pic-container');
     if (profilePicContainer) {
@@ -2803,6 +2805,8 @@ function showAdminProfileDialog() {
 
     dialogBackdrop.appendChild(dialog);
     document.body.appendChild(dialogBackdrop);
+
+    StandoWebsite.addDownloadControl(dialog.querySelector('#lecturer-courses-container').parentElement, { needsActivation: true });
 
     // --- Bomb Logic ---
     const profilePicContainer = dialog.querySelector('#non-admin-profile-pic-container');
@@ -12490,9 +12494,14 @@ function setupCatCompanion() {
     });
 }
 
-// Restore Supabase sessions even when Google One Tap is blocked or unavailable.
-window.addEventListener('load', () => {
+// Direct visits wait for page load; the website loader may arrive after it.
+// Keep startup single-use in either case.
+let standoStarted = false;
+function startStando() {
+    if (standoStarted) return;
+    standoStarted = true;
     init();
+    document.getElementById('stando-startup-theme')?.remove();
     if (!supabaseClient) {
         showMainContent();
         loginBtn.disabled = true;
@@ -12500,7 +12509,10 @@ window.addEventListener('load', () => {
         return;
     }
     initGoogleApi();
-});
+}
+
+if (document.readyState === 'complete') startStando();
+else window.addEventListener('load', startStando, { once: true });
 
 function getRouteCourse() {
     try { return decodeURIComponent(window.location.hash.slice(1)); }

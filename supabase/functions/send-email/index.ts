@@ -14,15 +14,33 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
-// Only these origins get a CORS response; anyone else's preflight fails and
-// the browser blocks the request before it's sent.
-const ALLOWED_ORIGINS = new Set([
+// Kept in this file so it can be pasted directly into the Supabase dashboard.
+// Only the central installation is built in. Manage all other websites through
+// the complete STANDO_ALLOWED_ORIGINS value in Supabase Edge Function secrets.
+const allowedOrigins = new Set([
   "https://bredliplaku.com",
   "https://www.bredliplaku.com",
   "https://attendance.bredliplaku.com",
   "https://bredliplaku.github.io",
 ]);
-const LOCALHOST_RE = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+const localhostPattern = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+
+for (const value of (Deno.env.get("STANDO_ALLOWED_ORIGINS") ?? "").split(",")) {
+  const raw = value.trim();
+  if (!raw) continue;
+  try {
+    const url = new URL(raw);
+    // Accept exact HTTPS origins only; no wildcards, credentials or page paths.
+    if (url.protocol === "https:" && !url.username && !url.password &&
+      url.pathname === "/" && !url.search && !url.hash && !url.hostname.includes("*")) {
+      allowedOrigins.add(url.origin);
+    }
+  } catch { /* Ignore invalid entries without affecting the existing websites. */ }
+}
+
+function isAllowedOrigin(origin: string): boolean {
+  return allowedOrigins.has(origin) || localhostPattern.test(origin);
+}
 
 function corsHeaders(req: Request): Record<string, string> {
   const origin = req.headers.get("origin") ?? "";
@@ -31,7 +49,7 @@ function corsHeaders(req: Request): Record<string, string> {
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Vary": "Origin",
   };
-  if (origin && (ALLOWED_ORIGINS.has(origin) || LOCALHOST_RE.test(origin))) {
+  if (origin && isAllowedOrigin(origin)) {
     headers["Access-Control-Allow-Origin"] = origin;
   } else if (!origin) {
     headers["Access-Control-Allow-Origin"] = "*";
@@ -195,7 +213,7 @@ async function sendViaResend(mail: { to: string[]; cc?: string[]; subject: strin
 Deno.serve(async (req) => {
   const cors = corsHeaders(req);
   const origin = req.headers.get("origin") ?? "";
-  if (origin && !ALLOWED_ORIGINS.has(origin) && !LOCALHOST_RE.test(origin)) {
+  if (origin && !isAllowedOrigin(origin)) {
     return new Response("Origin not allowed", { status: 403, headers: cors });
   }
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });

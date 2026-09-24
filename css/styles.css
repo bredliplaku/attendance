@@ -36,6 +36,27 @@
             --transition-curve: ease-out;
         }
 
+        /* Website download in lecturer and administrator settings. */
+        .website-download {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+            flex-shrink: 0;
+            padding: 14px 20px;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+            user-select: none;
+        }
+
+        .website-download-copy { flex: 1 1 220px; }
+        .website-download-copy strong { font-size: 0.9em; }
+        .website-download-copy p { margin: 4px 0 0; font-size: 0.8em; opacity: 0.75; }
+        .website-download button { flex-shrink: 0; white-space: nowrap; }
+        .website-download-copy .website-download-error { color: var(--danger-color); opacity: 1; }
+        .dark-mode .website-download { border-bottom-color: rgba(255, 255, 255, 0.1); }
+        #lecturer-courses-container, #settings-courses-container { min-height: 0; }
+
         /* --- Settings & Admin Profile Styles --- */
         .settings-grid {
             display: grid;
@@ -1087,6 +1108,7 @@
         }
 
         html {
+            color-scheme: light;
             background-color: var(--background-color);
             transition: background-color 0.4s ease;
         }
@@ -4710,6 +4732,7 @@
 
         /* Set base background for elastic scroll */
         html.dark-mode {
+            color-scheme: dark;
             /* This overrides the default light background with the dark one */
             --background-color: #000000;
         }
