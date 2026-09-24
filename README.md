@@ -62,8 +62,9 @@ a name and either a card ID or email. Imports need an internet connection.
 
 ## Use Stando on another website
 
-1. Sign in and click your name. Lecturers choose **My Courses → Download
-   index.html**; administrators use **Settings → Courses**.
+1. Sign in as a lecturer, click your photo or name to open **My Courses**, and
+   choose **Download index.html**. Global administrators work on the main site,
+   so their Settings have no download.
 2. Upload the downloaded file as `index.html` to an HTTPS website folder,
    for example `https://example.com/attendance/`.
 3. Ask the administrator to approve the website using the steps below.
@@ -104,8 +105,8 @@ would replace the previous entries. Secret updates require no redeployment.
 
 **Optional — Google One Tap:** to enable the automatic sign-in prompt, add the
 website origin to **Authorized JavaScript origins** in the Google web client
-matching `CLIENT_ID` in [js/scripts.js](js/scripts.js). The ordinary **Sign in**
-button uses the Supabase redirect configured above.
+matching `CLIENT_ID` in [js/scripts.js](js/scripts.js). The **Sign in with Google**
+button in the page header uses the Supabase redirect configured above.
 
 Open the uploaded page and sign in after approval. Sessions, preferences and
 device IDs are separate on each website, so trusted devices may need approval
@@ -116,10 +117,23 @@ Reference: [Supabase redirects](https://supabase.com/docs/guides/auth/redirect-u
 [secret settings](https://supabase.com/docs/guides/functions/secrets#production-secrets),
 [Google origins](https://developers.google.com/identity/gsi/web/guides/get-google-api-clientid).
 
+### Staff names and photos
+
+Staff photos and default names come from each person's Google account after
+their first Google sign-in. In **Settings → Staff**, leave a name empty to use
+the Google name, or enter one to add a title or change it.
+
 ## Developer notes
 
 Stando uses HTML, CSS and JavaScript, Supabase for authentication and backend
 services, and Google Identity Services for One Tap.
+
+### Database functions
+
+Staff photos and Google names are read through the `staff_profiles` function in
+[supabase/migrations](supabase/migrations/20260924120000_staff_profiles.sql).
+For a new Supabase project, run that file once in the **SQL Editor**. Without
+it, staff lists show initials and the names entered in Settings.
 
 ### Deploy application changes
 

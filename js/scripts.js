@@ -216,8 +216,7 @@ async function handleOneTapResponse(response) {
     if (loginBtn) {
         loginBtn.dataset.originalText = loginBtn.innerHTML;
         loginBtn.disabled = true;
-        loginBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Verifying...';
-        loginBtn.style.backgroundColor = "#ccc";
+        loginBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin" aria-hidden="true"></i> Verifying...';
         loginBtn.style.cursor = "wait";
     }
 
@@ -235,7 +234,7 @@ async function handleOneTapResponse(response) {
         console.error("One Tap sign-in failed:", err);
         if (loginBtn) {
             loginBtn.disabled = false;
-            loginBtn.innerHTML = loginBtn.dataset.originalText || '<i class="fa-brands fa-google"></i> Sign in';
+            if (loginBtn.dataset.originalText) loginBtn.innerHTML = loginBtn.dataset.originalText;
             loginBtn.style.backgroundColor = "";
             loginBtn.style.cursor = "pointer";
         }
@@ -287,61 +286,59 @@ function showStaffEditorDialog(staffData = null) {
 
     let activeNfcSession = { controller: null, button: null };
 
-    const nameVal = isEdit ? staffData.name : '';
+    const nameVal = isEdit ? (staffData.name || '') : '';
     const emailVal = isEdit ? staffData.email : '';
     const uidVal = isEdit ? staffData.uid : '';
+    // An empty name shows the name from their Google account, once they have signed in.
+    const googleName = isEdit ? (staffData.googleName || '') : '';
+    const namePlaceholder = googleName || 'From their Google account';
 
     // Default to 'Lecturer' if adding new
     const roleVal = isEdit ? staffData.role : 'Lecturer';
 
     dialog.innerHTML = `
-        <h3 class="dialog-title"><i class="fa-solid ${icon}"></i> ${title}</h3>
+        <h3 class="dialog-title"><i class="fa-solid ${icon}" aria-hidden="true"></i> ${title}</h3>
         <div class="dialog-content">
-            
-            <div class="form-group">
-                <label class="dialog-label-fixed"><i class="fa-solid fa-quote-left"></i> Name*</label>
-                <input type="text" id="staff-name" class="form-control" placeholder="Full Name" value="${escapeHtml(nameVal)}">
-            </div>
 
             <div class="form-group">
-                <label class="dialog-label-fixed"><i class="fa-solid fa-at"></i> Email*</label>
+                <label class="dialog-label-fixed" for="staff-name">Name</label>
+                <input type="text" id="staff-name" class="form-control" placeholder="${escapeHtml(namePlaceholder)}" value="${escapeHtml(nameVal)}" autocomplete="off">
+            </div>
+            <p class="form-hint">Leave empty to use the name from their Google account. Enter a name to add a title or change it.</p>
+
+            <div class="form-group">
+                <label class="dialog-label-fixed" for="staff-email">Email <span class="required">*</span></label>
                 <input type="email" id="staff-email" class="form-control" placeholder="nsurname@epoka.edu.al" value="${escapeHtml(emailVal)}">
             </div>
 
             <div class="form-group">
-                <label class="dialog-label-fixed"><i class="fa-solid fa-user-tie"></i> Role</label>
+                <label class="dialog-label-fixed" for="staff-role">Role</label>
                 <select id="staff-role" class="form-control">
                     <option value="Global" ${roleVal === 'Global' ? 'selected' : ''}>Administrator</option>
                     <option value="Lecturer" ${roleVal === 'Lecturer' ? 'selected' : ''}>Lecturer</option>
                     <option value="Student" ${roleVal === 'Student' ? 'selected' : ''}>Student</option>
                 </select>
             </div>
-            
-            <div style="margin-left:115px; margin-bottom:15px; font-size:0.85em; color:#666; line-height:1.4;">
-                <strong>Lecturer:</strong> Can login on trusted devices only and manage their courses.<br>
-                <strong>Student:</strong> Can login on any device and only see their attendance.<br>
-            </div>
+            <p class="form-hint"><strong>Lecturer:</strong> can log in on trusted devices only and manages their courses. <strong>Student:</strong> can log in on any device and sees only their attendance.</p>
 
             <div class="form-group">
-                <label class="dialog-label-fixed"><i class="fa-solid fa-wifi"></i> UID*</label>
-                <div class="admin-tool-bar" style="padding:0; border:none; background:transparent; flex-grow:1;"> 
-                    <div class="admin-input-wrapper" style="margin:0; width:100%;">
-                        <input type="text" id="staff-uid" class="form-control" placeholder="04:a2:3f:8a" value="${escapeHtml(uidVal)}">
-                        ${nfcSupported ? '<button class="btn-blue btn-icon btn-sm scan-staff-uid-btn" title="Scan UID" style="border-radius:6px;"><i class="fa-solid fa-wifi"></i></button>' : ''}
-                    </div>
+                <label class="dialog-label-fixed" for="staff-uid">UID <span class="required">*</span></label>
+                <div class="admin-input-wrapper" style="margin:0; width:100%;">
+                    <input type="text" id="staff-uid" class="form-control" placeholder="04:a2:3f:8a" value="${escapeHtml(uidVal)}">
+                    ${nfcSupported ? '<button type="button" class="btn-blue btn-icon btn-sm scan-staff-uid-btn" title="Scan UID" aria-label="Scan UID"><i class="fa-solid fa-wifi" aria-hidden="true"></i></button>' : ''}
                 </div>
             </div>
 
             <div class="form-group">
-                <label class="dialog-label-fixed"><i class="fa-solid fa-id-card"></i> Card ID</label>
-                <input type="text" id="staff-converted-id" class="form-control" placeholder="Auto-calculated from UID" value="${escapeHtml(convertUidToExternalId(uidVal))}" disabled style="opacity:0.75; cursor:not-allowed; background:rgba(0,0,0,0.04);">
+                <label class="dialog-label-fixed" for="staff-converted-id">Card ID</label>
+                <input type="text" id="staff-converted-id" class="form-control" placeholder="Calculated from the UID" value="${escapeHtml(convertUidToExternalId(uidVal))}" disabled>
             </div>
-            
+
             <div id="staff-nfc-status" style="margin-top:10px;"></div>
         </div>
         <div class="dialog-actions">
-            <button id="cancel-staff-btn" class="btn-red"><i class="fa-solid fa-xmark"></i> Cancel</button>
-            <button id="save-staff-btn" class="btn-green"><i class="fa-solid fa-check"></i> ${btnText}</button>
+            <button type="button" id="cancel-staff-btn" class="btn-red"><i class="fa-solid fa-xmark"></i> Cancel</button>
+            <button type="button" id="save-staff-btn" class="btn-green"><i class="fa-solid fa-check"></i> ${btnText}</button>
         </div>`;
 
     dialogBackdrop.appendChild(dialog);
@@ -389,10 +386,16 @@ function showStaffEditorDialog(staffData = null) {
         const convId = document.getElementById('staff-converted-id')?.value.trim();
         const uid = convId || convertUidToExternalId(rawUid) || rawUid;
         const role = document.getElementById('staff-role').value;
-        const btn = e.target;
+        const btn = e.currentTarget;
 
-        if (!name || !email || !uid) {
-            showNotification('error', 'Missing Info', 'All fields are required.');
+        // The name is optional: empty means the name from their Google account.
+        const emailInput = document.getElementById('staff-email');
+        const uidInput = document.getElementById('staff-uid');
+        emailInput.setAttribute('aria-invalid', String(!email));
+        uidInput.setAttribute('aria-invalid', String(!uid));
+        if (!email || !uid) {
+            showNotification('error', 'Missing Info', 'Email and UID are required.');
+            (!email ? emailInput : uidInput).focus();
             return;
         }
 
@@ -681,7 +684,10 @@ function renderSessionControls(courseName) {
 
         const btn = document.createElement('div');
         btn.setAttribute('class', 'course-button');
-        btn.innerHTML = `<i class="fa-solid ${iconClass}"></i>&nbsp; ${cat}`;
+        btn.setAttribute('role', 'button');
+        btn.tabIndex = 0;
+        btn.dataset.category = cat;
+        btn.innerHTML = `<i class="fa-solid ${iconClass} tab-icon" aria-hidden="true"></i><span class="tab-label" data-label="${escapeHtml(cat)}">${escapeHtml(cat)}</span>`;
 
         btn.onclick = () => selectSessionCategory(cat);
 
@@ -718,8 +724,7 @@ function selectSessionCategory(category) {
     // Visual Update
     const catGroup = document.getElementById('session-category-group');
     Array.from(catGroup.children).forEach(btn => {
-        if (btn.innerText.trim() === category) btn.classList.add('active');
-        else btn.classList.remove('active');
+        btn.classList.toggle('active', (btn.dataset.category ?? btn.innerText.trim()) === category);
     });
 
     renderGroupsForCategory(category);
@@ -752,7 +757,9 @@ function renderGroupsForCategory(category) {
     groups.forEach(grp => {
         const btn = document.createElement('div');
         btn.setAttribute('class', 'course-button');
-        btn.innerHTML = `<b>${grp}</b>`;
+        btn.setAttribute('role', 'button');
+        btn.tabIndex = 0;
+        btn.innerHTML = `<b>${escapeHtml(grp)}</b>`;
 
         btn.onclick = () => selectSessionGroup(grp);
 
@@ -789,6 +796,14 @@ function setupAbsenceHistory() {
     if (historyBtn) {
         historyBtn.addEventListener('click', showAbsenceHistoryDialog);
     }
+    // My courses / All courses: choosing the other option toggles the filter.
+    const scopeSwitch = document.getElementById('absence-filter-btn');
+    if (scopeSwitch) {
+        scopeSwitch.addEventListener('click', (event) => {
+            const option = event.target.closest('button[data-scope]');
+            if (option && option.getAttribute('aria-pressed') !== 'true') toggleAbsenceFilter();
+        });
+    }
 }
 
 function toggleAbsenceFilter() {
@@ -796,29 +811,29 @@ function toggleAbsenceFilter() {
     syncAbsenceFilterBtn();
     const tbody = document.getElementById('absences-tbody');
     if (tbody) {
-        tbody.style.transition = 'opacity 0.18s ease';
-        tbody.style.opacity = '0';
+        // Dim, never blank, while the list changes.
+        tbody.style.transition = 'opacity 0.12s ease-out';
+        tbody.style.opacity = '0.5';
         setTimeout(() => {
             renderAbsencesTable(cachedAbsences);
+            tbody.style.transition = 'opacity 0.2s ease-out';
             tbody.style.opacity = '1';
-        }, 180);
+        }, 120);
     } else {
         renderAbsencesTable(cachedAbsences);
     }
 }
 
+// Slides the thumb by toggling data-active; the switch itself is never re-rendered.
 function syncAbsenceFilterBtn() {
-    const btn = document.getElementById('absence-filter-btn');
-    if (!btn) return;
-    if (hideOtherCourseAbsences) {
-        btn.innerHTML = '<i class="fa-solid fa-filter"></i> My courses';
-        btn.className = 'btn-sm btn-blue';
-        btn.title = 'Showing my courses only';
-    } else {
-        btn.innerHTML = '<i class="fa-solid fa-filter-circle-xmark"></i> All courses';
-        btn.className = 'btn-sm';
-        btn.title = 'Showing all courses';
-    }
+    const scopeSwitch = document.getElementById('absence-filter-btn');
+    if (!scopeSwitch) return;
+    const scope = hideOtherCourseAbsences ? 'mine' : 'all';
+    scopeSwitch.dataset.active = scope;
+    scopeSwitch.title = hideOtherCourseAbsences ? 'Showing my courses only' : 'Showing all courses';
+    scopeSwitch.querySelectorAll('button[data-scope]').forEach(option => {
+        option.setAttribute('aria-pressed', String(option.dataset.scope === scope));
+    });
 }
 
 
@@ -835,14 +850,17 @@ async function showAbsenceHistoryDialog() {
 
     dialog.innerHTML = `
     <div class="settings-modal-header">
-        <h3 style="margin:0;"><i class="fa-solid fa-clock-rotate-left"></i> Request History</h3>
-        <button id="close-hist-btn" class="btn-icon" style="background:transparent; color:var(--text-color); font-size:1.2em;"><i class="fa-solid fa-xmark"></i></button>
+        <h3 style="margin:0;"><i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i> Request History</h3>
+        <button type="button" id="close-hist-btn" class="btn-icon icon-only-btn" title="Close" aria-label="Close history"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
     </div>
     <div class="dialog-content" style="overflow-y:auto; padding-top:0;">
-        
-        <div class="filter-container" style="position:sticky; top:0; background:var(--card-background); z-index:10; padding:10px 0; border-bottom:1px solid #eee;">
-            <input type="text" id="hist-search" class="filter-input" placeholder="Search..." style="flex-grow:1;">
-            <select id="hist-filter-status" class="sort-dropdown">
+
+        <div class="filter-container history-filter-bar">
+            <div class="search filter-search">
+                <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+                <input type="search" id="hist-search" class="filter-input" placeholder="Search..." aria-label="Search requests">
+            </div>
+            <select id="hist-filter-status" class="sort-dropdown" aria-label="Filter by status">
                 <option value="All">All</option>
                 <option value="Pending">Pending</option>
                 <option value="Approved">Approved</option>
@@ -861,6 +879,18 @@ async function showAbsenceHistoryDialog() {
     // Close Logic
     const close = () => { document.body.removeChild(dialogBackdrop); closeDialogMode(); };
     dialog.querySelector('#close-hist-btn').onclick = close;
+
+    // The sticky filter bar gains its glass backdrop only while it floats over the list.
+    const historyScroller = dialog.querySelector('.dialog-content');
+    const historyBar = dialog.querySelector('.history-filter-bar');
+    let stuckFrame = 0;
+    historyScroller.addEventListener('scroll', () => {
+        if (stuckFrame) return;
+        stuckFrame = requestAnimationFrame(() => {
+            stuckFrame = 0;
+            historyBar.classList.toggle('is-stuck', historyScroller.scrollTop > 0);
+        });
+    }, { passive: true });
 
     // Fetch Data
     try {
@@ -893,7 +923,7 @@ async function showAbsenceHistoryDialog() {
                 // --- Session Badge ---
                 let sessionBadge = '';
                 if (req.session && req.session !== 'Default') {
-                    sessionBadge = `<span style="background:#e3f2fd; color:var(--primary-color); font-weight:700; font-size:0.75em; padding:1px 6px; border-radius:4px; text-transform:uppercase; margin-left:6px;">${escapeHtml(req.session)}</span>`;
+                    sessionBadge = `<span class="session-badge">${escapeHtml(req.session)}</span>`;
                 }
 
                 return `
@@ -1439,8 +1469,13 @@ function setupEventListeners() {
             }
 
             // Update the active state on the tab buttons
-            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab').forEach(t => {
+                t.classList.remove('active');
+                t.setAttribute('aria-selected', 'false');
+            });
             tab.classList.add('active');
+            tab.setAttribute('aria-selected', 'true');
+            closeRowMenus();
 
             // Transition the content panes
             if (oldTabContent) {
@@ -1449,6 +1484,8 @@ function setupEventListeners() {
             if (newTabContent) {
                 newTabContent.classList.add('active');
             }
+            // Show or hide the floating date bar for the tab now in view.
+            if (typeof window._stickyDateScrollHandler === 'function') window._stickyDateScrollHandler();
         });
     });
 
@@ -1492,6 +1529,24 @@ function setupEventListeners() {
 
     const registerUidBtn = document.getElementById('register-uid-btn');
     if (registerUidBtn) registerUidBtn.addEventListener('click', showRegisterUIDDialog);
+
+    // The photo and name chip opens Settings, My Courses or the profile.
+    const profileChip = document.getElementById('student-profile-chip');
+    if (profileChip) profileChip.addEventListener('click', () => {
+        if (!isSignedIn) return;
+        if (isGlobalAdmin) showGlobalSettingsDialog();
+        else if (isAdmin) showAdminProfileDialog();
+        else showStudentProfileDialog();
+    });
+
+    // Div-based choices (tabs, course and section buttons) answer Enter and Space.
+    document.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        const target = event.target;
+        if (!(target instanceof HTMLElement) || !target.matches('div[role="button"], div[role="tab"], div[role="checkbox"]')) return;
+        event.preventDefault();
+        target.click();
+    });
 
     const requestPermissionBtn = document.getElementById('request-permission-btn');
     if (requestPermissionBtn) requestPermissionBtn.addEventListener('click', showRequestPermissionDialog);
@@ -1891,8 +1946,175 @@ function confirmCloseDialog(backdropOrDialog, onDismiss) {
 }
 if (typeof window !== 'undefined') window.confirmCloseDialog = confirmCloseDialog;
 
-function getAvatarFallbackUrl(name) {
-    return `https://ui-avatars.com/api/?name=${encodeURIComponent(name || 'User')}&background=1976d2&color=fff`;
+// --- People: title-aware ordering and avatars ---
+
+// Titles count only at the start of a name or after a comma ("Jane Doe, PhD"),
+// so a surname such as "Ma" is not mistaken for one.
+const TITLE_WORDS = new Set(['prof', 'professor', 'assoc', 'associate', 'asst', 'assist', 'assistant',
+    'dr', 'phd', 'mr', 'mrs', 'ms', 'msc', 'ma', 'pm', 'ba', 'bsc', 'acad']);
+function splitLecturerName(name) {
+    const [main, ...after] = String(name || '').split(',');
+    const words = main.trim().split(/\s+/).filter(Boolean);
+    const key = word => word.toLowerCase().replace(/\./g, '');
+    const titles = [];
+    while (words.length > 1 && TITLE_WORDS.has(key(words[0]))) titles.push(key(words.shift()));
+    for (const part of after) {
+        const tokens = part.trim().split(/\s+/).map(key).filter(Boolean);
+        if (tokens.length && tokens.every(t => TITLE_WORDS.has(t))) titles.push(...tokens);
+    }
+    return { titles, name: words.join(' ') };
+}
+function lecturerTitleRank(name) {
+    const titles = new Set(splitLecturerName(name).titles);
+    if (titles.has('assoc') || titles.has('associate')) return 2;
+    if (titles.has('asst') || titles.has('assist') || titles.has('assistant')) return 2.5;
+    if (titles.has('prof') || titles.has('professor')) return 1;
+    if (titles.has('dr') || titles.has('phd')) return 3;
+    if (['mr', 'mrs', 'ms', 'msc', 'ma', 'pm'].some(t => titles.has(t))) return 4;
+    if (titles.has('ba') || titles.has('bsc')) return 5;
+    return 6;
+}
+function compareLecturers(a, b) {
+    return lecturerTitleRank(a) - lecturerTitleRank(b) ||
+        splitLecturerName(a).name.localeCompare(splitLecturerName(b).name, undefined, { sensitivity: 'base' }) ||
+        String(a || '').localeCompare(String(b || ''), undefined, { sensitivity: 'base' });
+}
+
+// Initials sit underneath the photo, so a missing or broken photo shows them instead.
+function avatarInitials(name) {
+    return String(splitLecturerName(name).name || name || '').split(/[\s@._-]+/).filter(Boolean)
+        .slice(0, 2).map(part => part[0]).join('').toLocaleUpperCase();
+}
+function avatarContentHtml(name, photo) {
+    return escapeHtml(avatarInitials(name)) + (photo
+        ? `<img src="${escapeHtml(photo)}" alt="" referrerpolicy="no-referrer" loading="lazy" onerror="this.remove()">`
+        : '');
+}
+function userAvatarHtml(name, photo, className = 'user-avatar') {
+    return `<span class="${className}" aria-hidden="true">${avatarContentHtml(name, photo)}</span>`;
+}
+
+// --- Row actions: a quiet Edit and a ⋯ menu (Delete is never one tap away) ---
+
+function rowEditButtonHtml(label, className = '', attrs = '') {
+    return `<button type="button" class="row-edit-btn ${className}" title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}" ${attrs}><i class="fa-solid fa-pen" aria-hidden="true"></i><span>Edit</span></button>`;
+}
+
+// items: [{ label, icon, className, attrs, danger }]. Items keep the classes and
+// data attributes of the buttons they replace, so existing handlers still apply.
+function rowMenuHtml(items, label = 'More actions') {
+    return `<div class="row-menu">
+        <button type="button" class="row-menu-btn" aria-haspopup="menu" aria-expanded="false" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}"><i class="fa-solid fa-ellipsis" aria-hidden="true"></i></button>
+        <div class="row-menu-list" role="menu" hidden>${items.map(item =>
+        `<button type="button" role="menuitem" class="${item.className || ''}${item.danger ? ' is-danger' : ''}" ${item.attrs || ''}><i class="${item.icon}" aria-hidden="true"></i>${escapeHtml(item.label)}</button>`).join('')}</div>
+    </div>`;
+}
+
+// An open menu is moved to <body> and fixed to the viewport, so tables, dialogs
+// and transformed containers never clip or offset it. It returns to its row on close.
+function closeRowMenus() {
+    document.querySelectorAll('.row-menu-list:not([hidden])').forEach(list => {
+        const home = list._home;
+        list.hidden = true;
+        list._home = null;
+        home?.querySelector('.row-menu-btn')?.setAttribute('aria-expanded', 'false');
+        if (home?.isConnected) home.appendChild(list);
+        else list.remove();
+    });
+}
+
+function toggleRowMenu(button) {
+    const wasOpen = button.getAttribute('aria-expanded') === 'true';
+    closeRowMenus();
+    const menu = button.closest('.row-menu');
+    const list = menu?.querySelector(':scope > .row-menu-list');
+    if (wasOpen || !list) return;
+    list._home = menu;
+    document.body.appendChild(list);
+    list.hidden = false;
+    button.setAttribute('aria-expanded', 'true');
+    const r = button.getBoundingClientRect();
+    const width = list.offsetWidth, height = list.offsetHeight;
+    const viewWidth = document.documentElement.clientWidth, viewHeight = window.innerHeight;
+    list.style.left = `${Math.max(8, Math.min(r.right - width, viewWidth - width - 8))}px`;
+    const below = r.bottom + 6;
+    list.style.top = `${below + height > viewHeight - 8 ? Math.max(8, r.top - 6 - height) : below}px`;
+    list.querySelector('button:not(:disabled)')?.focus({ preventScroll: true });
+}
+
+function setupRowMenus() {
+    // Capture on window runs before the page's own document handlers.
+    window.addEventListener('click', event => {
+        const target = event.target instanceof Element ? event.target : null;
+        const toggle = target?.closest('.row-menu-btn');
+        if (toggle) { toggleRowMenu(toggle); return; }
+        const item = target?.closest('.row-menu-list [role="menuitem"]');
+        const list = item?.closest('.row-menu-list');
+        if (item && list?._home) {
+            // Run the item from its row, so row and table handlers see the click.
+            // dispatchEvent, not click(): click() is ignored while this click is still in progress.
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            closeRowMenus();
+            if (!item.disabled) item.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+            return;
+        }
+        if (!target?.closest('.row-menu-list')) closeRowMenus();
+    }, true);
+    window.addEventListener('keydown', event => {
+        const open = document.querySelector('.row-menu-list:not([hidden])');
+        if (!open) return;
+        if (event.key === 'Escape') {
+            // Close the menu only, not the dialog underneath it.
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            const button = open._home?.querySelector('.row-menu-btn');
+            closeRowMenus();
+            button?.focus();
+        } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+            const items = [...open.querySelectorAll('[role="menuitem"]:not(:disabled)')];
+            const index = items.indexOf(document.activeElement);
+            event.preventDefault();
+            items[(index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus();
+        } else if (event.key === 'Tab') {
+            closeRowMenus();
+        }
+    }, true);
+    document.addEventListener('scroll', closeRowMenus, { capture: true, passive: true });
+    window.addEventListener('resize', closeRowMenus, { passive: true });
+}
+
+// --- Courses: display order (newest academic year, Summer → Spring → Fall, then code) ---
+
+const TERM_ORDER = { Summer: 0, Spring: 1, Fall: 2 };
+// Fall opens an academic year; Spring and Summer close it.
+function courseTerm(info) {
+    const raw = String(info?.startDate || '').trim();
+    if (!raw) return null;
+    const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    const date = iso ? new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3])) : new Date(raw);
+    if (isNaN(date.getTime())) return null;
+    const year = date.getFullYear(), month = date.getMonth() + 1;
+    const season = month >= 8 ? 'Fall' : month <= 5 ? 'Spring' : 'Summer';
+    const academicStart = season === 'Fall' ? year : year - 1;
+    return {
+        season,
+        academicStart,
+        academicYear: `${academicStart}–${academicStart + 1}`,
+        label: `${season} ${year}`,
+        date
+    };
+}
+
+function compareCoursesForDisplay(aEntry, bEntry) {
+    const a = courseTerm(aEntry[1]), b = courseTerm(bEntry[1]);
+    if (a && b) {
+        if (a.academicStart !== b.academicStart) return b.academicStart - a.academicStart;
+        if (a.season !== b.season) return TERM_ORDER[a.season] - TERM_ORDER[b.season];
+    } else if (a || b) {
+        return a ? -1 : 1; // Courses without a term come last.
+    }
+    return courseCodeComparator(aEntry, bEntry);
 }
 
 // --- 3. Non-Global Admin Profile & Settings ---
@@ -1901,7 +2123,7 @@ function showGlobalSettingsDialog() {
     const dialogBackdrop = document.createElement('div');
     dialogBackdrop.setAttribute('class', 'dialog-backdrop');
     const dialog = document.createElement('div');
-    dialog.setAttribute('class', 'dialog');
+    dialog.setAttribute('class', 'dialog settings-dialog');
     dialog.style.maxWidth = '1000px';
     dialog.style.height = '85vh';
     dialog.setAttribute('role', 'dialog');
@@ -1910,100 +2132,79 @@ function showGlobalSettingsDialog() {
     let avatarClickCount = 0;
     let lastAvatarClickTime = 0;
 
-    const avatarUrl = currentUser.picture || getAvatarFallbackUrl(currentUser.name);
-
     // --- HTML STRUCTURE ---
     dialog.innerHTML = `
     <div class="settings-modal-header">
-        <div style="display:flex; align-items:center; gap:15px;">
-            <div style="position:relative; width:48px; height:48px; cursor: default;" id="admin-profile-pic-container">
-                <img id="profile-avatar-img" src="${avatarUrl}" referrerpolicy="no-referrer" onerror="this.onerror=null; this.src='${getAvatarFallbackUrl(currentUser.name)}';" style="width:100%; height:100%; border-radius:50%; border:2px solid var(--card-background); box-shadow:0 2px 8px rgba(0,0,0,0.1); object-fit:cover;">
+        <div class="settings-modal-identity">
+            <div class="settings-avatar" id="admin-profile-pic-container">
+                ${userAvatarHtml(currentUserDisplayName(), currentUser.picture, 'user-avatar user-avatar-lg')}
             </div>
-            <div>
-                <h3 style="margin:0; font-size:1.3em;">Settings</h3>
-                <div style="font-size:0.85em; opacity:0.7;">Administrator</div>
+            <div class="settings-modal-heading">
+                <h3>Settings</h3>
+                <div class="settings-modal-sub">Administrator</div>
             </div>
         </div>
-        <button id="close-settings-btn" class="btn-icon" style="background:transparent; color:var(--text-color); font-size:1.2em;"><i class="fa-solid fa-xmark"></i></button>
+        <button type="button" id="close-settings-btn" class="btn-icon icon-only-btn" title="Close" aria-label="Close settings"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
     </div>
-    
-    <div class="settings-tabs-container">
-        <button class="settings-tab-btn active" data-target="sect-courses">
-            <i class="fa-solid fa-book-open"></i> Courses
-        </button>
-        <button class="settings-tab-btn" data-target="sect-staff">
-            <i class="fa-solid fa-user-tie"></i> Staff</button>
-        <button class="settings-tab-btn" data-target="sect-devices">
-            <i class="fa-solid fa-laptop-code"></i> Trusted Devices
-        </button>
+
+    <div class="settings-tabs-container" role="tablist">
+        <button type="button" class="settings-tab-btn active" data-target="sect-courses" role="tab" aria-selected="true"><i class="fa-solid fa-book-open tab-icon" aria-hidden="true"></i><span class="tab-label" data-label="Courses">Courses</span></button>
+        <button type="button" class="settings-tab-btn" data-target="sect-staff" role="tab" aria-selected="false"><i class="fa-solid fa-user-tie tab-icon" aria-hidden="true"></i><span class="tab-label" data-label="Staff">Staff</span></button>
+        <button type="button" class="settings-tab-btn" data-target="sect-devices" role="tab" aria-selected="false"><i class="fa-solid fa-laptop-code tab-icon" aria-hidden="true"></i><span class="tab-label" data-label="Trusted Devices">Trusted Devices</span></button>
     </div>
 
     <div class="dialog-content" style="padding:0; position:relative; display:flex; flex-direction:column; overflow:hidden;">
-        
+
         <div id="settings-loader" class="settings-loader-overlay">
             <div class="loading-spinner"></div>
         </div>
-        
+
         <div id="sect-courses" class="settings-section" style="display:flex; flex-direction:column; height:100%;">
-            <div class="settings-controls-bar" style="padding:15px 20px; border-bottom:1px solid rgba(0,0,0,0.05); display:flex; gap:10px; align-items:center;">
-                <div class="input-with-icon" style="flex-grow:1;">
-                    <i class="fa-solid fa-magnifying-glass"></i>
-                    <input type="text" id="course-search-input" class="settings-search-input" placeholder="Search courses...">
+            <div class="settings-controls-bar">
+                <div class="input-with-icon search">
+                    <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+                    <input type="search" id="course-search-input" class="settings-search-input" placeholder="Search courses..." aria-label="Search courses">
                 </div>
-                <button id="add-new-course-btn" class="btn-green btn-sm">
-                    <i class="fa-solid fa-plus"></i> New Course
+                ${settingsSortSelectHtml('settings-course-sort')}
+                <button type="button" id="add-new-course-btn" class="btn-green btn-sm" title="New course" aria-label="New course">
+                    <i class="fa-solid fa-plus" aria-hidden="true"></i><span class="btn-text">New Course</span>
                 </button>
             </div>
-            <div style="flex-grow:1; overflow-y:auto; padding:20px;" id="settings-courses-container"></div>
+            <div class="settings-scroll" id="settings-courses-container"></div>
         </div>
 
         <div id="sect-staff" class="settings-section" style="display:none; flex-direction:column; height:100%;">
-            <div class="settings-controls-bar" style="padding:15px 20px; border-bottom:1px solid rgba(0,0,0,0.05); display:flex; gap:10px; align-items:center;">
-                <div class="input-with-icon" style="flex-grow:1;">
-                    <i class="fa-solid fa-magnifying-glass"></i>
-                    <input type="text" id="staff-search-input" class="settings-search-input" placeholder="Search staff...">
+            <div class="settings-controls-bar">
+                <div class="input-with-icon search">
+                    <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+                    <input type="search" id="staff-search-input" class="settings-search-input" placeholder="Search staff..." aria-label="Search staff">
                 </div>
-                <button id="add-staff-btn" class="btn-green btn-sm">
-                    <i class="fa-solid fa-user-plus"></i> Add Staff
+                <button type="button" id="add-staff-btn" class="btn-green btn-sm" title="Add staff" aria-label="Add staff">
+                    <i class="fa-solid fa-user-plus" aria-hidden="true"></i><span class="btn-text">Add Staff</span>
                 </button>
             </div>
-            <div style="flex-grow:1; overflow-y:auto; padding:20px;" id="settings-staff-container"></div>
+            <div class="settings-scroll" id="settings-staff-container"></div>
         </div>
 
         <div id="sect-devices" class="settings-section" style="display:none; flex-direction:column; height:100%;">
-            <div style="padding:20px 20px 0 20px;">
-                <div style="background:rgba(33, 150, 243, 0.1); border:1px solid var(--info-color); padding:15px; border-radius:8px; margin-bottom:15px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
-                    <div style="color:var(--text-color);">
-                        <strong><i class="fa-solid fa-circle-info" style="color:var(--info-color);"></i> This Device ID</strong><br>
-                        <small style="font-family:monospace; opacity:0.8;">${getDeviceFingerprint()}</small>
+            <div class="settings-scroll">
+                <div class="settings-device-note">
+                    <div class="settings-device-id">
+                        <strong>This device</strong>
+                        <small class="selectable">${escapeHtml(getDeviceFingerprint())}</small>
                     </div>
-                    <button id="register-this-device-btn" class="btn-blue btn-sm">
-                        <i class="fa-solid fa-fingerprint"></i> Register This Device
+                    <button type="button" id="register-this-device-btn" class="btn-blue btn-sm">
+                        <i class="fa-solid fa-fingerprint" aria-hidden="true"></i> Register This Device
                     </button>
                 </div>
-            </div>
-            <div style="flex-grow:1; overflow-y:auto; padding:0 20px 20px 20px;">
-                <div class="table-container">
-                    <table class="database-table">
-                        <thead>
-                            <tr>
-                                <th>Device Name</th>
-                                <th>Registered By</th>
-                                <th>Date</th>
-                                <th class="actions-header">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="devices-tbody"></tbody>
-                    </table>
-                </div>
+                <div class="settings-group-label">Trusted devices</div>
+                <div id="devices-tbody" class="settings-list"></div>
             </div>
         </div>
     </div>`;
 
     dialogBackdrop.appendChild(dialog);
     document.body.appendChild(dialogBackdrop);
-
-    StandoWebsite.addDownloadControl(dialog.querySelector('#sect-courses'));
 
     // --- BOMB LOGIC (Restored) ---
     const profilePicContainer = dialog.querySelector('#admin-profile-pic-container');
@@ -2047,12 +2248,23 @@ function showGlobalSettingsDialog() {
                 }
             }
 
+            // The header and tabs stay put; only the section's content fades in.
             const switchTab = () => {
-                dialog.querySelectorAll('.settings-tab-btn').forEach(b => b.classList.remove('active'));
+                closeRowMenus();
+                dialog.querySelectorAll('.settings-tab-btn').forEach(b => {
+                    b.classList.remove('active');
+                    b.setAttribute('aria-selected', 'false');
+                });
                 dialog.querySelectorAll('.settings-section').forEach(s => s.style.display = 'none');
                 btn.classList.add('active');
+                btn.setAttribute('aria-selected', 'true');
                 const target = document.getElementById(btn.dataset.target);
-                if (target) target.style.display = 'flex';
+                if (target) {
+                    target.classList.remove('loaded');
+                    target.style.display = 'flex';
+                    void target.offsetWidth;
+                    target.classList.add('loaded');
+                }
             };
 
             if (isSectionDirty) {
@@ -2077,6 +2289,8 @@ function showGlobalSettingsDialog() {
             renderCoursesInSettings(courseInfoMap, e.target.value);
         });
     }
+    bindSettingsSortSelect(dialog.querySelector('#settings-course-sort'),
+        () => renderCoursesInSettings(courseInfoMap, searchInput ? searchInput.value : ''));
 
     let loadedStaffList = [];
     const staffSearchInput = document.getElementById('staff-search-input');
@@ -2099,6 +2313,10 @@ function showGlobalSettingsDialog() {
 
             courseInfoMap = courseInfo;
             loadedStaffList = globalData.staff || [];
+            // Course rows show lecturers by name where the staff list knows them.
+            settingsStaffNames = new Map(loadedStaffList
+                .filter(s => s && s.email && (s.name || s.googleName))
+                .map(s => [String(s.email).trim().toLowerCase(), staffDisplayName(s)]));
 
             // Render Courses
             renderCoursesInSettings(courseInfo);
@@ -2119,26 +2337,23 @@ function showGlobalSettingsDialog() {
                     regBtn.classList.replace('btn-blue', 'btn-green');
                 }
 
-                deviceBody.innerHTML = globalData.devices.map(d => `
-                <tr style="${d.id === myId ? 'background:rgba(76, 175, 80, 0.1);' : ''}">
-                    <td>
-                        <strong>${escapeHtml(d.name)}</strong>
-                        ${d.id === myId ? '<span style="margin-left:5px; font-size:0.8em; background:#4caf50; color:white; padding:2px 6px; border-radius:4px;">CURRENT</span>' : ''}
-                    </td>
-                    <td>${escapeHtml(d.owner)}</td>
-                    <td>${escapeHtml(d.date)}</td>
-                    <td class="actions-cell">
-                        <div class="actions-cell-content">
-                            <button class="btn-red btn-icon delete-device-btn" 
-                                data-row-index="${d.rowIndex}" 
-                                data-name="${escapeHtml(d.name)}"
-                                title="Remove">
-                                <i class="fa-solid fa-trash"></i>
-                            </button>
-                        </div>
-                    </td>
-                </tr>
-            `).join('');
+                deviceBody.innerHTML = globalData.devices.length ? globalData.devices.map(d => `
+                <div class="settings-row${d.id === myId ? ' is-selected' : ''}">
+                    <div class="settings-row-main">
+                        <span class="settings-row-title">${escapeHtml(d.name)}${d.id === myId ? ' <span class="settings-row-state">This device</span>' : ''}</span>
+                        <span class="settings-row-people">${escapeHtml(d.owner)}</span>
+                    </div>
+                    <div class="settings-row-meta">
+                        <span class="settings-row-sub">${escapeHtml(d.date)}</span>
+                    </div>
+                    <div class="card-actions">
+                        ${rowMenuHtml([{
+                            label: 'Remove device', icon: 'fa-solid fa-trash', danger: true, className: 'delete-device-btn',
+                            attrs: `data-row-index="${escapeHtml(String(d.rowIndex))}" data-name="${escapeHtml(d.name)}"`
+                        }], `More actions for ${d.name}`)}
+                    </div>
+                </div>
+            `).join('') : '<div class="settings-empty">No trusted devices.</div>';
 
                 // Attach Device Listeners (The Critical Fix)
                 deviceBody.querySelectorAll('.delete-device-btn').forEach(btn => {
@@ -2239,13 +2454,14 @@ function showGlobalSettingsDialog() {
 /**
 * Bridges the HTML onclick event to the Editor Dialog.
 */
-window.editStaffKey = (rowIndex, name, uid, email, role) => {
+window.editStaffKey = (rowIndex, name, uid, email, role, googleName = '') => {
     showStaffEditorDialog({
         rowIndex: rowIndex,
         name: name,
         uid: uid,
         email: email,
-        role: role
+        role: role,
+        googleName: googleName
     });
 };
 
@@ -2398,7 +2614,7 @@ function showCourseEditorDialog(courseName, courseData = null) {
     let groupButtonsHtml = '';
     for (let i = 0; i < 4; i++) {
         const char = String.fromCharCode(65 + i);
-        groupButtonsHtml += `<div class="course-button" data-val="${char}" style="min-width:35px; padding:6px 0; font-size:0.9em;"><b>${char}</b></div>`;
+        groupButtonsHtml += `<div class="course-button" data-val="${char}" role="button" tabindex="0" style="min-width:35px; padding:6px 0; font-size:0.9em;"><b>${char}</b></div>`;
     }
 
     dialog.innerHTML = `
@@ -2431,13 +2647,13 @@ function showCourseEditorDialog(courseName, courseData = null) {
                 <div id="section-builder-list" class="admin-pills-list" style="width:100%; box-sizing:border-box; min-height:40px; border-radius:8px; padding:5px; font-size:0.85em;"></div>
 
                 <div class="admin-tool-bar" style="flex-direction:column; gap:8px; align-items:stretch; padding:10px;">
-                    <div id="new-sec-cat" class="course-buttons-container" style="margin:0; width:100%; display:flex; gap:6px;">
-                        <div class="course-button active" data-val="Theory" style="flex:1; text-align:center; padding:6px; font-size:0.85em; min-width:0;"><i class="fa-solid fa-book"></i>&nbsp;Theory</div>
-                        <div class="course-button" data-val="Lab" style="flex:1; text-align:center; padding:6px; font-size:0.85em; min-width:0;"><i class="fa-solid fa-desktop"></i>&nbsp;Lab</div>
-                        <div class="course-button" data-val="Practice" style="flex:1; text-align:center; padding:6px; font-size:0.85em; min-width:0;"><i class="fa-solid fa-pen-to-square"></i>&nbsp;Practice</div>
+                    <div id="new-sec-cat" class="course-buttons-container segmented-choices" style="margin:0; width:100%; display:flex;">
+                        <div class="course-button active" data-val="Theory" role="button" tabindex="0" style="flex:1; text-align:center; padding:6px; font-size:0.85em; min-width:0;"><i class="fa-solid fa-book tab-icon" aria-hidden="true"></i><span class="tab-label" data-label="Theory">Theory</span></div>
+                        <div class="course-button" data-val="Lab" role="button" tabindex="0" style="flex:1; text-align:center; padding:6px; font-size:0.85em; min-width:0;"><i class="fa-solid fa-desktop tab-icon" aria-hidden="true"></i><span class="tab-label" data-label="Lab">Lab</span></div>
+                        <div class="course-button" data-val="Practice" role="button" tabindex="0" style="flex:1; text-align:center; padding:6px; font-size:0.85em; min-width:0;"><i class="fa-solid fa-pen-to-square tab-icon" aria-hidden="true"></i><span class="tab-label" data-label="Practice">Practice</span></div>
                     </div>
                     <div style="display:flex; justify-content:space-between; align-items:center; width:100%;">
-                        <div id="new-sec-grp" class="course-buttons-container" style="margin:0; flex-wrap:nowrap; gap:6px; flex:1;">
+                        <div id="new-sec-grp" class="course-buttons-container segmented-choices" style="margin:0; flex-wrap:nowrap; flex:1;">
                             ${groupButtonsHtml}
                         </div>
                         <button id="btn-add-section" class="btn-green btn-sm" style="padding:8px 15px; flex-shrink:0; margin-left:10px; font-size:0.85em;">
@@ -2485,7 +2701,7 @@ function showCourseEditorDialog(courseName, courseData = null) {
 
     </div>
     <div class="dialog-actions">
-        ${(!isNew && isGlobalAdmin) ? '<button id="delete-course-btn" class="btn-red" style="margin-right:auto;"><i class="fa-solid fa-trash"></i> Delete</button>' : ''}
+        ${(!isNew && isGlobalAdmin) ? '<button type="button" id="delete-course-btn" class="btn-red tint-danger" style="margin-right:auto;"><i class="fa-solid fa-trash" aria-hidden="true"></i> Delete</button>' : ''}
         <button id="cancel-edit-c" class="btn-blue"><i class="fa-solid fa-xmark"></i> Cancel</button>
         <button id="save-edit-c" class="btn-green"><i class="fa-solid fa-floppy-disk"></i> Save</button>
     </div>`;
@@ -2587,8 +2803,8 @@ function showCourseEditorDialog(courseName, courseData = null) {
             listContainer.innerHTML = '';
             const lowerFilter = filter.toLowerCase();
             const filtered = staffList.filter(s =>
-                s.name.toLowerCase().includes(lowerFilter) ||
-                s.email.toLowerCase().includes(lowerFilter)
+                staffDisplayName(s).toLowerCase().includes(lowerFilter) ||
+                String(s.email || '').toLowerCase().includes(lowerFilter)
             );
 
             if (filtered.length === 0) {
@@ -2602,15 +2818,18 @@ function showCourseEditorDialog(courseName, courseData = null) {
 
                 const div = document.createElement('div');
                 div.setAttribute('class', `student-item ${isSelected ? 'selected' : ''}`);
-                const initials = staff.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+                div.setAttribute('role', 'checkbox');
+                div.setAttribute('aria-checked', String(isSelected));
+                div.tabIndex = 0;
+                const shown = staffDisplayName(staff);
 
                 div.innerHTML = `
-                            <div class="student-avatar-placeholder" style="${isSelected ? 'background:var(--primary-color); color:white;' : ''}">${initials}</div>
+                            ${userAvatarHtml(shown, staff.photo, 'user-avatar settings-row-avatar')}
                             <div class="student-info" style="flex-grow:1;">
-                                <div class="student-name">${escapeHtml(staff.name)}</div>
-                                <div class="student-uid" style="font-size:0.8em;">${escapeHtml(staff.role === 'Global' ? 'Admin' : (staff.role || 'Staff'))} &bull; ${escapeHtml(staff.email)}</div>
+                                <div class="student-name">${escapeHtml(shown)}</div>
+                                <div class="student-uid">${escapeHtml(staff.role === 'Global' ? 'Administrator' : (staff.role || 'Staff'))} &bull; ${escapeHtml(staff.email)}</div>
                             </div>
-                            ${isSelected ? '<i class="fa-solid fa-check" style="color:var(--primary-color);"></i>' : ''}
+                            ${isSelected ? '<i class="fa-solid fa-check student-item-check" aria-hidden="true"></i>' : ''}
                         `;
 
                 div.onclick = () => {
@@ -2629,7 +2848,7 @@ function showCourseEditorDialog(courseName, courseData = null) {
                 if (loader) loader.style.display = 'none';
                 if (data && data.staff) {
                     staffList = data.staff;
-                    staffList.sort((a, b) => getCleanStaffNameForSort(a.name).localeCompare(getCleanStaffNameForSort(b.name)));
+                    staffList.sort((a, b) => compareLecturers(staffDisplayName(a), staffDisplayName(b)));
                     renderStaffList();
                 }
             })
@@ -2759,7 +2978,7 @@ function showAdminProfileDialog() {
     const dialogBackdrop = document.createElement('div');
     dialogBackdrop.setAttribute('class', 'dialog-backdrop');
     const dialog = document.createElement('div');
-    dialog.setAttribute('class', 'dialog');
+    dialog.setAttribute('class', 'dialog settings-dialog');
     dialog.style.maxWidth = '1000px';
     dialog.style.height = '85vh';
     dialog.setAttribute('role', 'dialog');
@@ -2768,38 +2987,37 @@ function showAdminProfileDialog() {
     let avatarClickCount = 0;
     let lastAvatarClickTime = 0;
 
-    const avatarUrl = currentUser.picture || getAvatarFallbackUrl(currentUser.name);
-
     // --- Header (Unified "Global Settings" Look) ---
     const headerHtml = `
     <div class="settings-modal-header">
-        <div style="display:flex; align-items:center; gap:15px;">
-            <div style="position:relative; width:48px; height:48px; cursor: default;" id="non-admin-profile-pic-container">
-                <img id="profile-avatar-img" src="${avatarUrl}" referrerpolicy="no-referrer" onerror="this.onerror=null; this.src='${getAvatarFallbackUrl(currentUser.name)}';" style="width:100%; height:100%; border-radius:50%; border:2px solid var(--card-background); box-shadow:0 2px 8px rgba(0,0,0,0.1); object-fit:cover;">
+        <div class="settings-modal-identity">
+            <div class="settings-avatar" id="non-admin-profile-pic-container">
+                ${userAvatarHtml(currentUserDisplayName(), currentUser.picture, 'user-avatar user-avatar-lg')}
             </div>
-            <div>
-                <h3 style="margin:0; font-size:1.3em;">My Courses</h3>
-                <div style="font-size:0.85em; opacity:0.7;">${escapeHtml(currentUser.name)}</div>
+            <div class="settings-modal-heading">
+                <h3>My Courses</h3>
+                <div class="settings-modal-sub">${escapeHtml(currentUserDisplayName())}</div>
             </div>
         </div>
-        <button id="close-profile-btn" class="btn-icon" style="background:transparent; color:var(--text-color); font-size:1.2em;"><i class="fa-solid fa-xmark"></i></button>
+        <button type="button" id="close-profile-btn" class="btn-icon icon-only-btn" title="Close" aria-label="Close"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
     </div>`;
 
     // --- HTML Structure (Unified with Global Settings) ---
     dialog.innerHTML = `
     ${headerHtml}
-    <div class="dialog-content" style="padding:0; position:relative; display:flex; flex-direction:column; overflow:hidden; height:calc(85vh - 70px);">
+    <div class="dialog-content" style="padding:0; position:relative; display:flex; flex-direction:column; overflow:hidden;">
         <div id="profile-loader" class="settings-loader-overlay">
             <div class="loading-spinner"></div>
         </div>
         <div class="settings-section" style="display:flex; flex-direction:column; height:100%;">
-            <div class="settings-controls-bar" style="padding:15px 20px; border-bottom:1px solid rgba(0,0,0,0.05); display:flex; gap:10px; align-items:center;">
-                <div class="input-with-icon" style="flex-grow:1;">
-                    <i class="fa-solid fa-magnifying-glass"></i>
-                    <input type="text" id="lecturer-course-search-input" class="settings-search-input" placeholder="Search courses...">
+            <div class="settings-controls-bar">
+                <div class="input-with-icon search">
+                    <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+                    <input type="search" id="lecturer-course-search-input" class="settings-search-input" placeholder="Search courses..." aria-label="Search courses">
                 </div>
+                ${settingsSortSelectHtml('lecturer-course-sort')}
             </div>
-            <div style="flex-grow:1; overflow-y:auto; padding:20px;" id="lecturer-courses-container"></div>
+            <div class="settings-scroll" id="lecturer-courses-container"></div>
         </div>
     </div>`;
 
@@ -2848,6 +3066,8 @@ function showAdminProfileDialog() {
                 renderCoursesInSettings(myCourseDict, e.target.value, 'lecturer-courses-container');
             });
         }
+        bindSettingsSortSelect(dialog.querySelector('#lecturer-course-sort'),
+            () => renderCoursesInSettings(myCourseDict, searchInput ? searchInput.value : '', 'lecturer-courses-container'));
     })();
 }
 
@@ -2890,15 +3110,14 @@ async function showStudentProfileDialog() {
     }
 
     // 3. Compact Base HTML
-    const studentAvatarUrl = currentUser.picture || getAvatarFallbackUrl(currentUser.name);
     const profileHtml = `
 <div style="user-select:none; -webkit-user-select:none;">
     <div class="profile-header-section" style="display:flex; flex-direction:column; align-items:center; text-align:center; gap:8px; margin-bottom:12px; padding-bottom:12px; border-bottom:1px solid rgba(0,0,0,0.06);">
-        <a href="https://myaccount.google.com/" target="_blank" title="Manage Google Account">
-            <img src="${studentAvatarUrl}" class="profile-avatar-large" alt="Avatar" referrerpolicy="no-referrer" onerror="this.onerror=null; this.src='${getAvatarFallbackUrl(currentUser.name)}';" style="cursor:pointer; width:56px; height:56px; border-radius:50%; object-fit:cover; border:2px solid var(--card-background); box-shadow:0 2px 6px rgba(0,0,0,0.1);">
+        <a href="https://myaccount.google.com/" target="_blank" rel="noopener noreferrer" class="profile-avatar-link" title="Manage Google Account" aria-label="Manage Google Account">
+            ${userAvatarHtml(currentUserDisplayName(), currentUser.picture, 'user-avatar user-avatar-lg')}
         </a>
         <div style="text-align:center; max-width:100%;">
-            <h3 class="profile-name-large" style="margin:0 0 3px 0; font-size:1.15em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(currentUser.name)}</h3>
+            <h3 class="profile-name-large" style="margin:0 0 3px 0; font-size:1.15em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(currentUserDisplayName())}</h3>
             <p class="profile-email-large" style="margin:0; font-size:0.85em; opacity:0.7; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(currentUser.email)}</p>
         </div>
     </div>
@@ -3893,15 +4112,15 @@ function init() {
     // Set up event listeners
     setupEventListeners();
 
-    // Apply row-aware rounding to the static info-item chips in .app-info
-    const appInfoEl = document.querySelector('.app-info');
-    if (appInfoEl) {
+    // Round the header chips per visual row (the scan chips and the sign-in chips)
+    document.querySelectorAll('.app-info').forEach(appInfoEl => {
         requestAnimationFrame(() => updateButtonRows(appInfoEl));
         if (!appInfoEl._rowObserver) {
             appInfoEl._rowObserver = new ResizeObserver(() => updateButtonRows(appInfoEl));
             appInfoEl._rowObserver.observe(appInfoEl);
         }
-    }
+    });
+    setupRowMenus();
     setupRefreshButtons();
 
     // Restore and apply the last saved sort UI state
@@ -4064,7 +4283,8 @@ async function initGoogleApi() {
         const loginBtn = document.getElementById('login-btn');
         if (loginBtn) {
             loginBtn.disabled = false;
-            loginBtn.innerHTML = '<i class="fa-brands fa-google"></i> Sign in';
+            if (loginBtn.dataset.originalText) loginBtn.innerHTML = loginBtn.dataset.originalText;
+            loginBtn.style.backgroundColor = "";
             loginBtn.style.cursor = "pointer";
         }
     } finally {
@@ -4112,13 +4332,7 @@ async function onSuccessfulAuth(isRestore = false) {
 
         // Update UI (Moved outside the if-block so it runs for both modes)
         console.log('User:', currentUser.email);
-        if (!userName) userName = document.getElementById('user-name');
-        if (!userAvatar) userAvatar = document.getElementById('user-avatar');
-        if (userName) userName.textContent = currentUser.name;
-        if (userAvatar) {
-            userAvatar.referrerPolicy = 'no-referrer';
-            userAvatar.src = currentUser.picture || getAvatarFallbackUrl(currentUser.name);
-        }
+        renderUserChip();
 
         // 2. Get ALL boot data in ONE call (Admin Status + Course List)
         // This goes to YOUR backend, which knows how to handle the Kiosk token.
@@ -4131,6 +4345,16 @@ async function onSuccessfulAuth(isRestore = false) {
             adminCourses = bootData.adminStatus.courses || [];
             console.log('Admin status:', { isAdmin, isGlobalAdmin, adminCourses });
         }
+
+        // A staff member's custom name (for example with a title) replaces the
+        // Google name in the top bar. Loaded alongside the rest; never blocks.
+        sbGetStaffProfiles().then(profiles => {
+            const own = profiles.get(String(currentUser?.email || '').trim().toLowerCase());
+            if (own?.name && currentUser) {
+                currentUser.staffName = own.name;
+                renderUserChip();
+            }
+        });
 
         // 4. Process Available Courses from boot data
         const fetchedCourseDict = bootData.courses;
@@ -4346,10 +4570,10 @@ function showRegisterUIDDialog() {
     dialog.innerHTML = `
         <h3 class="dialog-title"><i class="fa-solid fa-id-card"></i> Register ID Card</h3>
         <div class="dialog-content"><p>Your details will be sent to the lecturer for approval.</p>
-        <div class="form-group"><label class="dialog-label-fixed"><i class="fa-solid fa-quote-left"></i> Name:</label><input class="form-control" value="${escapeHtml(currentUser.name)}" disabled></div>
-        <div class="form-group"><label class="dialog-label-fixed"><i class="fa-solid fa-at"></i> Email:</label><input class="form-control" value="${escapeHtml(currentUser.email)}" disabled></div>
+        <div class="form-group"><label class="dialog-label-fixed">Name</label><input class="form-control" value="${escapeHtml(currentUser.name)}" disabled></div>
+        <div class="form-group"><label class="dialog-label-fixed">Email</label><input class="form-control" value="${escapeHtml(currentUser.email)}" disabled></div>
         <div class="form-group">
-            <label class="dialog-label-fixed" for="register-hardware-uid"><i class="fa-solid fa-wifi"></i> UID:</label>
+            <label class="dialog-label-fixed" for="register-hardware-uid">UID</label>
             <input type="text" id="register-hardware-uid" class="form-control" placeholder="04:a2:3f:8a">
         </div>
         <div id="nfc-status-container"></div>
@@ -4473,12 +4697,12 @@ function showRegisterUIDDialogWithPrefill(prefillUid) {
             </div>
 
             <div class="form-group">
-                <label class="dialog-label-fixed" for="register-name"><i class="fa-solid fa-quote-left"></i> Name*</label>
+                <label class="dialog-label-fixed" for="register-name">Name <span class="required">*</span></label>
                 <input type="text" id="register-name" class="form-control" placeholder="Full Name" autocomplete="off">
             </div>
 
             <div class="form-group">
-                <label class="dialog-label-fixed" for="register-email"><i class="fa-solid fa-at"></i> Email*</label>
+                <label class="dialog-label-fixed" for="register-email">Email <span class="required">*</span></label>
                 <input type="email" id="register-email" class="form-control" placeholder="student@epoka.edu.al" autocomplete="off">
             </div>
 
@@ -4906,29 +5130,27 @@ function showRegistrationDetailsDialog(data, isReadOnly = false) {
 <h3 class="dialog-title">Review Registration</h3>
 <div class="dialog-content">
     <div class="form-group" style="align-items: flex-start;">
-        <label><i class="fa-solid fa-quote-left"></i> Student:</label>
+        <label>Student</label>
         <input class="form-control form-group-control" value="${escapeHtml(data.name)}" disabled>
     </div>
     <div class="form-group" style="align-items: flex-start;">
-        <label><i class="fa-solid fa-at"></i> Email:</label>
+        <label>Email</label>
         <input class="form-control form-group-control" value="${escapeHtml(data.email)}" disabled>
     </div>
     <div class="form-group" style="align-items: flex-start;">
-        <label><i class="fa-solid fa-id-card"></i> Card ID:</label>
+        <label>Card ID</label>
         <input class="form-control form-group-control" value="${escapeHtml(decId)}" disabled>
     </div>
     <div class="form-group" style="align-items: flex-start;">
-        <label><i class="fa-solid fa-wifi"></i> UID:</label>
-        <div class="form-group-control dialog-time-pill-container" style="padding-top: 13px; padding-bottom: 13px;">
-            <span class="uid-badge" style="font-size: 1.1em; padding: 8px 10px;">${escapeHtml(hexUid)}</span>
-        </div>
+        <label>UID</label>
+        <input class="form-control form-group-control" value="${escapeHtml(hexUid)}" disabled>
     </div>
     <div class="form-group" style="align-items: flex-start;">
-        <label>Sent By:</label>
+        <label>Sent By</label>
         <input class="form-control form-group-control" value="${escapeHtml(data.sentBy)}" disabled>
     </div>
     <div class="form-group" style="align-items: flex-start;">
-        <label>Timestamp:</label>
+        <label>Timestamp</label>
         <input class="form-control form-group-control" value="${formattedTimestamp}" disabled>
     </div>
 </div>
@@ -5485,9 +5707,9 @@ function renderRegistrationsTable(registrations) {
             <td style="font-size: 0.9em;">${escapeHtml(formattedTimestamp)}</td>
             <td style="font-size: 0.9em;">${escapeHtml(reg.sentBy) || 'Unknown'}</td>
             <td class="actions-cell">
-                <div class="actions-cell-content">
-                    <button class="btn-icon btn-green approve-reg-btn" title="Approve"><i class="fa-solid fa-check"></i></button>
-                    <button class="btn-icon btn-red reject-reg-btn" title="Reject"><i class="fa-solid fa-ban"></i></button>
+                <div class="actions-cell-content decision-pair">
+                    <button type="button" class="decision-btn is-approve approve-reg-btn" title="Approve" aria-label="Approve ${escapeHtml(reg.name)}"><i class="fa-solid fa-check" aria-hidden="true"></i><span>Approve</span></button>
+                    <button type="button" class="decision-btn is-reject reject-reg-btn" title="Reject" aria-label="Reject ${escapeHtml(reg.name)}"><i class="fa-solid fa-ban" aria-hidden="true"></i><span>Reject</span></button>
                 </div>
             </td>
         `;
@@ -5514,6 +5736,7 @@ function renderAbsencesTable(requests) {
     cachedAbsences = requests || [];
     const tbody = document.getElementById('absences-tbody');
     if (!tbody) return;
+    closeRowMenus();
     tbody.innerHTML = '';
 
     const isFiltering = isGlobalAdmin && adminCourses.length > 0 && hideOtherCourseAbsences;
@@ -5544,13 +5767,13 @@ function renderAbsencesTable(requests) {
         // Create Session Badge (Cat Label style)
         let sessionBadge = '';
         if (req.session && req.session !== 'Default') {
-            sessionBadge = `<span style="background:#e3f2fd; color:var(--primary-color); font-weight:700; font-size:0.75em; padding:2px 6px; border-radius:4px; text-transform:uppercase; margin-left:5px;">${escapeHtml(req.session)}</span>`;
+            sessionBadge = `<span class="session-badge">${escapeHtml(req.session)}</span>`;
         }
 
         row.innerHTML = `
-            <td>
-                <div>${escapeHtml(req.name)}</div>
-                <small style="opacity:0.7">${escapeHtml(req.email)}</small>
+            <td class="person-cell">
+                <div class="person-name">${escapeHtml(req.name)}</div>
+                <small class="person-email">${escapeHtml(req.email)}</small>
             </td>
             <td>
                 ${escapeHtml(req.course.replace(/_/g, ' '))}
@@ -5560,10 +5783,11 @@ function renderAbsencesTable(requests) {
             <td class="times-cell">${formatHoursAsPills(req.hours)}</td>
             <td>${escapeHtml(req.reasonType)}</td>
             <td class="actions-cell">
-                <div class="actions-cell-content">
-                    <button class="btn-icon btn-red delete-absence-btn" title="Delete Request" data-request-id="${req.requestID}" data-student-name="${escapeHtml(req.name)}">
-                        <i class="fa-solid fa-trash"></i>
-                    </button>
+                <div class="actions-cell-content card-actions">
+                    ${rowMenuHtml([{
+                        label: 'Delete request', icon: 'fa-solid fa-trash', danger: true, className: 'delete-absence-btn',
+                        attrs: `data-request-id="${escapeHtml(String(req.requestID ?? ''))}" data-student-name="${escapeHtml(req.name)}"`
+                    }], `More actions for ${req.name}`)}
                 </div>
             </td>`;
         tbody.appendChild(row);
@@ -5754,7 +5978,8 @@ function showRequestPermissionDialog() {
     const userNameNorm = norm(currentUser.name);
 
     // 2. Filter active (non-archived) courses where student has at least 1 entry
-    const allActiveCourses = Object.keys(courseInfoMap).sort()
+    const allActiveCourses = Object.keys(courseInfoMap)
+        .sort((a, b) => compareCoursesForDisplay([a, courseInfoMap[a]], [b, courseInfoMap[b]]))
         .filter(courseName => !courseInfoMap[courseName]?.archived);
 
     const enrolledCourses = allActiveCourses.filter(courseName => {
@@ -6380,7 +6605,7 @@ function showApproveAbsenceDialog(data) {
     <p>Approve hours for <strong>${escapeHtml(data.studentName)}</strong>. Unselect any hours you wish to deny.</p>
     
     <div class="form-group" style="align-items: flex-start;">
-        <label>Hours:</label>
+        <label>Hours</label>
         <div id="approve-hours-group" class="toggle-button-group" style="flex-wrap: wrap;">
             ${hourButtons}
         </div>
@@ -6389,7 +6614,7 @@ function showApproveAbsenceDialog(data) {
     <hr style="margin: 20px 0;">
 
     <div class="form-group" style="align-items: flex-start;">
-        <label for="approve-message-area">Email Message:</label>
+        <label for="approve-message-area">Email Message</label>
         <textarea id="approve-message-area" class="form-control" rows="6" placeholder="Add a custom message...">${defaultMessage}</textarea>
     </div>
     <div style="text-align: right; font-size: 0.8em; opacity: 0.7;">
@@ -6506,7 +6731,7 @@ function showRejectAbsenceDialog(data) {
 <div class="dialog-content">
     <p>This will reject the request for <strong>${escapeHtml(data.studentName)}</strong>. The student will be notified by email.</p>
     <div class="form-group" style="margin-top: 15px;">
-        <label for="reject-message-area">Reason:</label>
+        <label for="reject-message-area">Reason</label>
         <textarea id="reject-message-area" class="form-control" rows="6" placeholder="Add a reason for rejection...">${defaultMessage}</textarea>
     </div>
 </div>
@@ -6745,6 +6970,29 @@ async function sbGetAdminStatus() {
     return sbUnwrap(await supabaseClient.rpc('check_admin_status'));
 }
 
+// Staff photos and Google names come from each person's sign-in record
+// (public.staff_profiles). Global administrators get every staff member,
+// anyone else only themselves. Missing data never blocks the page.
+async function sbGetStaffProfiles() {
+    try {
+        const { data, error } = await supabaseClient.rpc('staff_profiles');
+        if (error) throw error;
+        return new Map((data || []).filter(row => row && row.email).map(row => [String(row.email).trim().toLowerCase(), {
+            name: row.name || '',
+            googleName: row.google_name || '',
+            photo: normalizeGooglePhotoUrl(row.photo_url || '')
+        }]));
+    } catch (error) {
+        console.warn('Staff profiles unavailable:', error?.message || error);
+        return new Map();
+    }
+}
+
+// The name shown for a staff member: their custom name, else their Google name, else the e-mail.
+function staffDisplayName(staff) {
+    return String(staff?.name || '').trim() || staff?.googleName || staff?.email || '';
+}
+
 async function sbGetCourseInfo() {
     const rows = sbUnwrap(await supabaseClient.from('courses')
         .select('name,start_date,end_date,holiday_weeks,holiday_start_date,default_hours,eis_id,admin_emails,available_sections,archived'));
@@ -6769,9 +7017,12 @@ async function sbGetDatabase() {
         .select('id,name,email,uids,hardware_uids').order('id'));
 
     let staffRows = [];
+    let staffProfiles = new Map();
     try {
         const staffRes = await supabaseClient.from('staff').select('name,email,uid,role');
         staffRows = staffRes.data || [];
+        // Staff without a custom name are shown by their Google name.
+        if (staffRows.some(s => s && !String(s.name || '').trim())) staffProfiles = await sbGetStaffProfiles();
     } catch (e) {
         console.warn('Staff fetch skipped or failed:', e);
     }
@@ -6780,7 +7031,11 @@ async function sbGetDatabase() {
 
     // Merge staff members into databaseMap so scanned staff cards resolve their name!
     (staffRows || []).forEach(s => {
-        if (!s || !s.name || !s.uid) return;
+        if (!s || !s.uid) return;
+        const profile = staffProfiles.get(String(s.email || '').trim().toLowerCase()) || {};
+        const displayName = staffDisplayName({ name: s.name, googleName: profile.googleName, email: s.email });
+        if (!displayName) return;
+        s = { ...s, name: displayName };
         const key = s.name.toLowerCase().trim();
         const rawUid = String(s.uid).trim();
         const convId = convertUidToExternalId(rawUid);
@@ -7004,17 +7259,23 @@ async function callSupabase(action, payload = {}) {
         }
 
         case 'getGlobalSettingsData': {
-            const [staffRows, deviceRows] = await Promise.all([
+            const [staffRows, deviceRows, profiles] = await Promise.all([
                 supabaseClient.from('staff')
                     .select('id,name,uid,email,role').order('id', { ascending: true }).then(sbUnwrap),
                 supabaseClient.from('trusted_devices')
-                    .select('id,name,device_id,owner,registered_at').order('id', { ascending: true }).then(sbUnwrap)
+                    .select('id,name,device_id,owner,registered_at').order('id', { ascending: true }).then(sbUnwrap),
+                sbGetStaffProfiles()
             ]);
             return {
-                staff: (staffRows || []).map(row => ({
-                    rowIndex: row.id, name: row.name, uid: row.uid,
-                    email: row.email, role: row.role || 'Student'
-                })),
+                // name is the custom name (may be empty); googleName and photo come from sign-in.
+                staff: (staffRows || []).map(row => {
+                    const profile = profiles.get(String(row.email || '').trim().toLowerCase()) || {};
+                    return {
+                        rowIndex: row.id, name: row.name || '', uid: row.uid,
+                        email: row.email, role: row.role || 'Student',
+                        googleName: profile.googleName || '', photo: profile.photo || ''
+                    };
+                }),
                 devices: (deviceRows || []).map(row => ({
                     rowIndex: row.id, name: row.name, id: row.device_id,
                     owner: row.owner, date: row.registered_at || ''
@@ -7097,16 +7358,17 @@ async function callSupabase(action, payload = {}) {
             if (payload.role === 'Global') role = 'Global';
             if (payload.role === 'Lecturer') role = 'Lecturer';
 
+            // An empty name means "use the name from their Google account".
             if (payload.actionType === 'add') {
                 sbUnwrap(await supabaseClient.from('staff').insert({
-                    name: payload.name, uid: payload.uid, email: payload.email, role
+                    name: payload.name || null, uid: payload.uid, email: payload.email, role
                 }));
             } else if (payload.actionType === 'delete') {
                 sbUnwrap(await supabaseClient.from('staff').delete()
                     .eq('id', parseInt(payload.rowIndex)));
             } else if (payload.actionType === 'edit') {
                 sbUnwrap(await supabaseClient.from('staff').update({
-                    name: payload.name, uid: payload.uid, email: payload.email, role
+                    name: payload.name || null, uid: payload.uid, email: payload.email, role
                 }).eq('id', parseInt(payload.rowIndex)));
             }
             return { result: 'success' };
@@ -7689,6 +7951,27 @@ function updateSyncStatus(message, status) {
     }
 }
 
+// Photo over initials, the name, and a label for what the chip opens.
+function renderUserChip() {
+    if (!currentUser) return;
+    const displayName = currentUserDisplayName();
+    const avatar = document.getElementById('user-avatar');
+    const name = document.getElementById('user-name');
+    const chip = document.getElementById('student-profile-chip');
+    if (avatar) avatar.innerHTML = avatarContentHtml(displayName, currentUser.picture);
+    if (name) name.textContent = displayName;
+    if (chip) {
+        const opens = isGlobalAdmin ? 'Settings' : isAdmin ? 'My courses' : 'Profile';
+        chip.title = opens;
+        chip.setAttribute('aria-label', `${opens}: ${displayName}`);
+    }
+}
+
+// The staff record's custom name when set, otherwise the Google account name.
+function currentUserDisplayName() {
+    return currentUser?.staffName || currentUser?.name || '';
+}
+
 function updateAuthUI() {
     // --- Initial UI State ---
     if (loadingTasks.has('auth')) {
@@ -7696,8 +7979,10 @@ function updateAuthUI() {
         checkLoadingCompletion();
     }
 
+    // Signed out, the header banner holds the sign-in button.
     const appHeader = document.querySelector('.app-header');
-    if (appHeader) appHeader.style.display = isSignedIn ? 'block' : 'none';
+    if (appHeader) appHeader.style.display = 'block';
+    document.body.classList.toggle('signed-out', !isSignedIn);
 
     // Temporarily hide course buttons; we'll show them later if needed
     const courseButtonsContainer = document.getElementById('course-buttons-container');
@@ -7730,9 +8015,6 @@ function updateAuthUI() {
     // --- Element References ---
     const loginContainer = document.getElementById('login-container');
     const userContainer = document.getElementById('user-container');
-    const userInfo = userContainer.querySelector('.user-info');
-    userAvatar = document.getElementById('user-avatar');
-    const logoutBtn = document.getElementById('logout-btn');
     const tabsContainer = document.querySelector('.tabs');
     const directEisExportBtn = document.getElementById('direct-eis-export-btn');
     const logsHeader = document.querySelector('.logs-header');
@@ -7751,61 +8033,8 @@ function updateAuthUI() {
 
     // --- Signed In State ---
     if (isSignedIn) {
-        if (!userName) userName = document.getElementById('user-name');
-        if (!userAvatar) userAvatar = document.getElementById('user-avatar');
-
-        if (currentUser) {
-            if (userName) userName.textContent = currentUser.name;
-            const fallbackAvatar = getAvatarFallbackUrl(currentUser.name);
-            if (userAvatar) {
-                userAvatar.referrerPolicy = 'no-referrer';
-                userAvatar.onerror = () => {
-                    userAvatar.onerror = null;
-                    userAvatar.src = fallbackAvatar;
-                };
-                userAvatar.src = currentUser.picture || fallbackAvatar;
-            }
-        }
-
-        let chip = document.getElementById('student-profile-chip');
-        if (!chip) {
-            chip = document.createElement('div');
-            chip.id = 'student-profile-chip';
-            chip.setAttribute('class', 'student-profile-chip');
-            if (userInfo && logoutBtn) userInfo.insertBefore(chip, logoutBtn);
-            else if (userInfo) userInfo.appendChild(chip);
-            if (userAvatar) chip.appendChild(userAvatar);
-            if (userName) chip.appendChild(userName);
-        }
-
-        const newChip = chip.cloneNode(true);
-        chip.parentNode.replaceChild(newChip, chip);
-        chip = newChip;
-        const newAvatar = chip.querySelector('.user-avatar') || chip.querySelector('#user-avatar');
-        if (newAvatar) {
-            userAvatar = newAvatar;
-            userAvatar.referrerPolicy = 'no-referrer';
-            userAvatar.onerror = () => {
-                userAvatar.onerror = null;
-                userAvatar.src = getAvatarFallbackUrl(currentUser?.name);
-            };
-        }
-        const newUserName = chip.querySelector('#user-name') || chip.querySelector('.user-name');
-        if (newUserName) {
-            userName = newUserName;
-        }
-
-        chip.addEventListener('click', () => {
-            if (isGlobalAdmin) showGlobalSettingsDialog();
-            else if (isAdmin) showAdminProfileDialog();
-            else showStudentProfileDialog();
-        });
-
-        if (userName) {
-            userName.style.color = 'inherit';
-            userName.style.textDecoration = 'none';
-            userName.classList.remove('student-name-clickable');
-        }
+        // The photo and name chip is the Settings / Profile entry point.
+        renderUserChip();
 
         if (isAdmin) {
             document.body.classList.add('is-admin');
@@ -7840,37 +8069,27 @@ function updateAuthUI() {
 
     } else {
         // --- Signed Out (Default) ---
-        let signedOutChip = document.getElementById('student-profile-chip');
-        if (signedOutChip && logoutBtn && userInfo) {
-            userInfo.insertBefore(userAvatar, logoutBtn);
-            userInfo.insertBefore(userName, logoutBtn);
-            signedOutChip.remove();
-        }
-
         document.body.classList.remove('is-admin');
 
         // Hide course buttons
         if (courseButtonsContainer) courseButtonsContainer.style.display = 'none';
 
-        let notSignedInMsg = notSignedInMsgElement;
-        if (!notSignedInMsg) {
-            notSignedInMsg = document.createElement('div');
-            notSignedInMsg.id = 'not-signed-in-message';
-            notSignedInMsg.setAttribute('class', 'not-signed-in-message');
-            const mainContainer = document.getElementById('main-container');
-            const appHeaderElement = mainContainer.querySelector('.app-header');
-            if (mainContainer && appHeaderElement) mainContainer.insertBefore(notSignedInMsg, appHeaderElement);
-            else if (mainContainer) mainContainer.appendChild(notSignedInMsg);
-        }
-
+        // The header banner carries the sign-in; a scanned card's UID shows below it.
         if (lastScannedUID) {
+            let notSignedInMsg = notSignedInMsgElement;
+            if (!notSignedInMsg) {
+                notSignedInMsg = document.createElement('div');
+                notSignedInMsg.id = 'not-signed-in-message';
+                notSignedInMsg.setAttribute('class', 'not-signed-in-message');
+                const appHeaderElement = document.querySelector('#main-container .app-header');
+                if (appHeaderElement) appHeaderElement.after(notSignedInMsg);
+                else document.getElementById('main-container')?.appendChild(notSignedInMsg);
+            }
             notSignedInMsg.innerHTML = `
                 <p><i class="fa-solid fa-id-card"></i> The UID of your ID Card is:</p>
-                <h2 style="margin-top: 10px; font-weight: bold; font-family: monospace; font-size: 1.8em; letter-spacing: 1px; word-break: break-all; color: var(--primary-dark);">${lastScannedUID}</h2>`;
-        } else {
-            notSignedInMsg.innerHTML = `
-                <h3><i class="fa-solid fa-circle-info"></i> Welcome to <strong>S</strong>mart <strong>T</strong>ap <strong>A</strong>ttendance <strong>N</strong>etwork & <strong>D</strong>ata <strong>O</strong>rganiser</h3>
-                <p>Please sign in with your <b>EPOKA Mail</b> to track your attendance.</p>`;
+                <h2 style="margin-top: 10px; font-weight: bold; font-family: monospace; font-size: 1.8em; letter-spacing: 1px; word-break: break-all; color: var(--primary-dark);">${escapeHtml(lastScannedUID)}</h2>`;
+        } else if (notSignedInMsgElement) {
+            notSignedInMsgElement.remove();
         }
 
         // --- CLEANUP ---
@@ -7922,8 +8141,7 @@ async function handleCourseChange(courseName) {
     cooldownUIDs.clear();
     localStorage.setItem('last_active_course', courseName);
     renderSessionControls(courseName);
-    renderTableSkeletons();
-    document.getElementById('empty-logs').style.display = 'none';
+    beginLogsSwap();
     try {
         await loadAndMergeCourseData(courseName);
     } finally {
@@ -8600,12 +8818,12 @@ function showAddEntryDialog() {
             <p style="margin-bottom: 15px; opacity: 0.7;">Enter details for the new database entry.</p>
             
             <div class="form-group">
-                <label class="dialog-label-fixed" for="add-name"><i class="fa-solid fa-quote-left"></i> Name*</label>
+                <label class="dialog-label-fixed" for="add-name">Name <span class="required">*</span></label>
                 <input type="text" id="add-name" class="form-control" placeholder="Full Name">
             </div>
 
             <div class="form-group">
-                <label class="dialog-label-fixed" for="add-email"><i class="fa-solid fa-at"></i> E-mail*</label>
+                <label class="dialog-label-fixed" for="add-email">Email <span class="required">*</span></label>
                 <input type="email" id="add-email" class="form-control" placeholder="nsurname00@epoka.edu.al">
             </div>
 
@@ -8785,12 +9003,12 @@ function editDatabaseEntry(dbKey) {
     <h3 class="dialog-title"><i class="fa-solid fa-user-pen"></i> Edit Student</h3>
     <div class="dialog-content">
         <div class="form-group">
-            <label class="dialog-label-fixed" for="edit-name"><i class="fa-solid fa-quote-left"></i> Name*</label>
+            <label class="dialog-label-fixed" for="edit-name">Name <span class="required">*</span></label>
             <input type="text" id="edit-name" class="form-control" placeholder="Full Name" value="${escapeHtml(entry.name)}">
         </div>
         
         <div class="form-group">
-            <label class="dialog-label-fixed" for="edit-email"><i class="fa-solid fa-at"></i> Email*</label>
+            <label class="dialog-label-fixed" for="edit-email">Email <span class="required">*</span></label>
             <input type="email" id="edit-email" class="form-control" placeholder="nsurname00@epoka.edu.al" value="${escapeHtml(entry.email || '')}">
         </div>
         
@@ -9558,10 +9776,10 @@ function showEditLogDialog(group) {
         <hr style="border: none; border-top: 1px solid #eee; margin: 15px 0;">
         
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-            <label style="font-weight:700; color:var(--primary-color);"><i class="fa-regular fa-clock"></i> Timestamps</label>
-            <div style="display:flex; gap:5px;">
-                <button id="add-new-time-btn" class="btn-green btn-sm"><i class="fa-solid fa-plus"></i> Add Time</button>
-                <button id="delete-all-logs-btn" class="btn-red btn-sm"><i class="fa-solid fa-trash"></i> Delete All</button>
+            <label class="inline-field-label" style="margin:0;">Timestamps</label>
+            <div class="dialog-button-group">
+                <button type="button" id="add-new-time-btn" class="btn-green btn-sm"><i class="fa-solid fa-plus" aria-hidden="true"></i> Add Time</button>
+                <button type="button" id="delete-all-logs-btn" class="btn-red btn-sm"><i class="fa-solid fa-trash" aria-hidden="true"></i> Delete All</button>
             </div>
         </div>
         
@@ -9897,7 +10115,7 @@ async function performBulkAction(action) {
     } else if (action === 'add1h') {
         confirmTitle = `Add +1 Hour?`;
         confirmMsg = `Create a new log 1 hour later for every selected student.`;
-        if (sessionHtml) extraHtml = `<div style="margin-top:15px; text-align:left;"><label style="font-size:0.85em; font-weight:600; color:var(--primary-color);">Target Session:</label>${sessionHtml}</div>`;
+        if (sessionHtml) extraHtml = `<div style="margin-top:15px; text-align:left;"><label class="inline-field-label">Target Session</label>${sessionHtml}</div>`;
     } else if (action === 'sub1h') {
         confirmTitle = `Delete Latest Hour?`;
         // Shorter message as requested
@@ -9905,7 +10123,7 @@ async function performBulkAction(action) {
         if (sessionHtml) {
             extraHtml = `
             <div style="margin-top:15px; text-align:left;">
-                <label style="font-size:0.85em; font-weight:600; color:var(--primary-color);">Target:</label>
+                <label class="inline-field-label">Target</label>
                 ${sessionHtml}
                 <div style="font-size:0.8em; color:#666; margin-top:5px; font-style:italic;">
                     "Latest" deletes the most recent log regardless of group.
@@ -10543,8 +10761,10 @@ function updateLogsList() {
     if (isChangingCourses) {
         tableContainer.classList.add('reloading');
     }
+    closeRowMenus();
 
     if (!currentCourse) {
+        endLogsSwap();
         logsTbody.innerHTML = '';
         filteredCount.textContent = '0';
         emptyLogs.innerHTML = `<i class="fa-solid fa-hand-pointer" style="font-size: 3em; color: #ccc; margin-bottom: 10px;"></i>
@@ -10559,6 +10779,9 @@ function updateLogsList() {
     // If the data object for the current course hasn't been created yet,
     // it means Phase 3 is still running. Show a spinner.
     if (!courseData[currentCourse]) {
+        // During a course switch the previous table stays, dimmed, until the
+        // skeleton timer or the new data takes over.
+        if (logsSwap) return;
         logsTbody.innerHTML = '';
         filteredCount.textContent = '0';
         emptyLogs.innerHTML = `<div class="loading-spinner" style="margin: 20px auto;"></div><p style="text-align: center;">Loading logs...</p>`;
@@ -10852,34 +11075,28 @@ function updateLogsList() {
             const actionsCell = document.createElement('td');
             actionsCell.setAttribute('class', 'actions-cell admin-only');
             const actionsWrapper = document.createElement('div');
-            actionsWrapper.setAttribute('class', 'actions-cell-content');
+            actionsWrapper.setAttribute('class', 'actions-cell-content card-actions');
+
+            // Edit stays visible; everything else is in the ⋯ menu, with the
+            // destructive action last. Classes keep the tbody's click handler working.
+            const menuItems = [];
+            if (group.name === 'Unknown') {
+                menuItems.push({ label: 'Register student', icon: 'fa-solid fa-user-plus', className: 'add-user-btn register-unknown-btn' });
+            }
+            menuItems.push(
+                { label: 'Add 1 hour', icon: 'fa-solid fa-plus', className: 'add-time-btn' },
+                { label: 'Delete latest time', icon: 'fa-solid fa-minus', className: 'delete-log-btn', danger: true }
+            );
+            actionsWrapper.innerHTML = rowEditButtonHtml(`Edit entry for ${group.name}`, 'edit-log-btn') +
+                rowMenuHtml(menuItems, `More actions for ${group.name}`);
 
             if (group.name === 'Unknown') {
-                const addUserBtn = document.createElement('button');
-                addUserBtn.setAttribute('class', 'btn-green btn-icon add-user-btn');
-                addUserBtn.title = 'Register Student';
-                addUserBtn.setAttribute('aria-label', `Register student with UID ${group.uid}`);
-                addUserBtn.innerHTML = '<i class="fa-solid fa-user-plus"></i>';
-
                 // Open registration dialog instead of direct database add
-                addUserBtn.addEventListener('click', (e) => {
+                actionsWrapper.querySelector('.register-unknown-btn').addEventListener('click', (e) => {
                     e.stopPropagation();
                     showRegisterUIDDialogWithPrefill(group.uid);
                 });
-
-                actionsWrapper.appendChild(addUserBtn);
             }
-
-            actionsWrapper.insertAdjacentHTML('beforeend', `
-    <button class="btn-green btn-icon add-time-btn" title="Add +1 Hour" aria-label="Add another hour for ${escapeHtml(group.name)}">
-        <i class="fa-solid fa-plus"></i>
-    </button>
-    <button class="btn-red btn-icon delete-log-btn" title="Delete Latest Timestamp" aria-label="Delete latest timestamp for ${escapeHtml(group.name)}">
-        <i class="fa-solid fa-minus"></i>
-    </button>
-    <button class="btn-blue btn-icon edit-log-btn" title="Edit" aria-label="Edit entry for ${escapeHtml(group.name)}">
-        <i class="fa-solid fa-pencil"></i>
-    </button>`);
 
             actionsCell.appendChild(actionsWrapper);
             row.appendChild(actionsCell);
@@ -10891,8 +11108,51 @@ function updateLogsList() {
     if (isChangingCourses) {
         isChangingCourses = false;
     }
+    endLogsSwap();
 
     setupStickyDateBar();
+}
+
+// --- Course switches: keep the frame, swap only the content ---
+// The previous table stays on screen, dimmed and inert, until the new one
+// renders. A skeleton replaces it only if loading takes longer than 400ms.
+let logsSwap = null;
+
+function logsSwapParts() {
+    return ['#scanner-tab .table-container', '#empty-logs', '#logs-pagination']
+        .map(selector => document.querySelector(selector)).filter(Boolean);
+}
+
+function beginLogsSwap() {
+    const content = document.querySelector('#scanner-tab .module-content');
+    if (logsSwap) clearTimeout(logsSwap.timer);
+    else if (content) {
+        // Hold the height so the page doesn't collapse and re-expand.
+        content.style.minHeight = content.offsetHeight + 'px';
+        content.classList.remove('loaded');
+    }
+    logsSwapParts().forEach(part => { part.inert = true; });
+    logsSwap = {
+        timer: setTimeout(() => {
+            if (!logsSwap) return;
+            logsSwapParts().forEach(part => { part.inert = false; });
+            const emptyState = document.getElementById('empty-logs');
+            if (emptyState) emptyState.style.display = 'none';
+            renderTableSkeletons();
+        }, 400)
+    };
+}
+
+function endLogsSwap() {
+    if (!logsSwap) return;
+    clearTimeout(logsSwap.timer);
+    logsSwap = null;
+    logsSwapParts().forEach(part => { part.inert = false; });
+    const content = document.querySelector('#scanner-tab .module-content');
+    if (!content) return;
+    content.style.minHeight = '';
+    void content.offsetWidth;
+    content.classList.add('loaded');
 }
 
 
@@ -10964,7 +11224,9 @@ function setupStickyDateBar() {
     }
 
     function onScroll() {
-        const rows = document.querySelectorAll('tr.day-separator[data-date]');
+        // Only the scan history has day separators; other tabs never show the bar.
+        const scannerActive = document.getElementById('scanner-tab')?.classList.contains('active');
+        const rows = scannerActive ? document.querySelectorAll('tr.day-separator[data-date]') : [];
         let activeDate = null;
         for (const row of rows) {
             if (row.getBoundingClientRect().bottom <= 1) {
@@ -11039,19 +11301,19 @@ function showAddEntryFromLog(uid) {
         <h3 class="dialog-title"><i class="fa-solid fa-user-plus"></i> Add to Database</h3>
         <div class="dialog-content"><p>Enter the details for the student with this card.</p>
         <div class="form-group">
-            <label class="dialog-label-fixed" for="add-log-name"><i class="fa-solid fa-quote-left"></i> Name*:</label>
+            <label class="dialog-label-fixed" for="add-log-name">Name <span class="required">*</span></label>
             <input type="text" id="add-log-name" class="form-control" placeholder="Student's Full Name">
         </div>
         <div class="form-group">
-            <label class="dialog-label-fixed" for="add-log-email"><i class="fa-solid fa-at"></i> Email*:</label>
+            <label class="dialog-label-fixed" for="add-log-email">Email <span class="required">*</span></label>
             <input type="email" id="add-log-email" class="form-control" placeholder="nsurname00@epoka.edu.al">
         </div>
         <div class="form-group">
-            <label class="dialog-label-fixed" for="add-log-hardware-uid"><i class="fa-solid fa-wifi"></i> UID:</label>
+            <label class="dialog-label-fixed" for="add-log-hardware-uid">UID</label>
             <input type="text" id="add-log-hardware-uid" class="form-control" placeholder="04:a2:3f:8a" value="${escapeHtml(initHw)}">
         </div>
         <div class="form-group">
-            <label class="dialog-label-fixed" for="add-log-student-id"><i class="fa-solid fa-id-card"></i> Card ID:</label>
+            <label class="dialog-label-fixed" for="add-log-student-id">Card ID</label>
             <input type="text" id="add-log-student-id" class="form-control" placeholder="Auto-calculated from UID" value="${escapeHtml(initId)}" disabled style="opacity:0.75; cursor:not-allowed; background:rgba(0,0,0,0.04);">
         </div>
         </div> <div class="dialog-actions">
@@ -11221,6 +11483,7 @@ function updateDatabaseList() {
     renderDbPagination(dbCurrentPage, totalPages);
 
     emptyDatabase.style.display = totalCount > 0 ? 'none' : 'block';
+    closeRowMenus();
     databaseTbody.innerHTML = '';
 
     paginatedEntries.forEach(([dbKey, data]) => {
@@ -11246,9 +11509,12 @@ function updateDatabaseList() {
             <td class="uid-cell">${hwBadges}</td>
             <td class="email-cell">${escapeHtml(data.email || '')}</td>
             <td class="actions-cell admin-only">
-                <div class="actions-cell-content">
-                    <button class="btn-blue btn-icon edit-db-btn" data-key="${escapeHtml(dbKey)}" title="Edit"><i class="fa-solid fa-pencil"></i></button>
-                    <button class="btn-red btn-icon delete-db-btn" data-key="${escapeHtml(dbKey)}" title="Delete"><i class="fa-solid fa-trash-can"></i></button>
+                <div class="actions-cell-content card-actions">
+                    ${rowEditButtonHtml(`Edit ${data.name}`, 'edit-db-btn', `data-key="${escapeHtml(dbKey)}"`)}
+                    ${rowMenuHtml([{
+                        label: 'Delete student', icon: 'fa-solid fa-trash', danger: true, className: 'delete-db-btn',
+                        attrs: `data-key="${escapeHtml(dbKey)}"`
+                    }], `More actions for ${data.name}`)}
                 </div>
             </td>
         `;
@@ -11280,8 +11546,15 @@ function parseCourseCode(courseName, eisId) {
 
 /**
 * Sorts courses first by numeric code (123 then 211 then 322), then by text prefix.
+* Cross-listed codes ("SWE / CE 101") come after all single codes, A–Z among themselves.
 */
 function courseCodeComparator(aEntry, bEntry) {
+    const aCode = getCleanCourseCode(aEntry[0], aEntry[1]?.eisId);
+    const bCode = getCleanCourseCode(bEntry[0], bEntry[1]?.eisId);
+    const crossA = String(aCode || '').includes('/'), crossB = String(bCode || '').includes('/');
+    if (crossA !== crossB) return crossA ? 1 : -1;
+    if (crossA) return String(aCode).localeCompare(String(bCode), undefined, { numeric: true, sensitivity: 'base' });
+
     const a = parseCourseCode(aEntry[0], aEntry[1]?.eisId);
     const b = parseCourseCode(bEntry[0], bEntry[1]?.eisId);
 
@@ -11297,32 +11570,85 @@ function courseCodeComparator(aEntry, bEntry) {
     return a.raw.localeCompare(b.raw);
 }
 
-/**
-* Renders the course list within the Settings dialog.
-* Handles list formatting, Active & Archived categorization, and search filtering.
-* @param {Object} courseInfo - The dictionary of course metadata.
-* @param {string} [filterText=''] - Optional text to filter the list.
-*/
-let settingsCourseSort = localStorage.getItem('settings_course_sort') || 'code-asc';
+// --- Settings course lists (global Settings and a lecturer's My Courses) ---
+
+const SETTINGS_COURSE_SORTS = [
+    ['term', 'Newest term'],
+    ['code-asc', 'Code A–Z'],
+    ['code-desc', 'Code Z–A'],
+    ['date-desc', 'Newest start'],
+    ['date-asc', 'Oldest start']
+];
+let settingsCourseSort = localStorage.getItem('settings_course_sort') || 'term';
+if (!SETTINGS_COURSE_SORTS.some(([value]) => value === settingsCourseSort)) settingsCourseSort = 'term';
+// Chosen filter pills, per list container.
+const settingsCourseFacets = {};
+// Staff e-mail → name, so course rows can name their lecturers.
+let settingsStaffNames = new Map();
+
+function settingsSortSelectHtml(id) {
+    return `<select id="${id}" class="settings-sort-select" aria-label="Sort courses" title="Sort courses">${SETTINGS_COURSE_SORTS.map(([value, label]) =>
+        `<option value="${value}"${value === settingsCourseSort ? ' selected' : ''}>${label}</option>`).join('')}</select>`;
+}
+
+function bindSettingsSortSelect(select, rerender) {
+    if (!select) return;
+    select.value = settingsCourseSort;
+    select.addEventListener('change', () => {
+        settingsCourseSort = select.value;
+        localStorage.setItem('settings_course_sort', settingsCourseSort);
+        rerender();
+    });
+}
+
+const COURSE_FACETS = [
+    { id: 'semester', label: 'Semester' },
+    { id: 'year', label: 'Academic year' },
+    { id: 'lecturer', label: 'Lecturer' }
+];
+const LECTURER_PILLS = 6;
+
+// A course's lecturers, by name where Settings' staff list or the loaded
+// database (which includes staff) knows them, in title order.
+function courseLecturers(info) {
+    const staffInDatabase = email => Object.values(databaseMap)
+        .find(entry => entry.isStaff && entry.email && entry.email.toLowerCase() === email)?.name;
+    return String(info?.adminEmails || '').split(',').map(email => email.trim()).filter(Boolean)
+        .map(email => settingsStaffNames.get(email.toLowerCase()) || staffInDatabase(email.toLowerCase()) || email)
+        .sort(compareLecturers);
+}
+
+// Keys are normalised, so a name with titles groups with the same name without them.
+function courseFacetValues(info, facet) {
+    const term = courseTerm(info);
+    if (facet === 'semester') return term ? [{ key: term.season, label: term.season }] : [];
+    if (facet === 'year') return term ? [{ key: term.academicYear, label: term.academicYear, start: term.academicStart }] : [];
+    return courseLecturers(info).map(name => {
+        const label = (splitLecturerName(name).name || name).replace(/\s+/g, ' ');
+        return { key: label.toLocaleLowerCase(), label, full: name };
+    }).filter(value => value.key);
+}
 
 /**
-* Renders the course list within the Settings dialog.
-* Handles list formatting, Active & Archived categorization, interactive sorting, and search filtering.
+* Renders the course list within the Settings dialog as compact rows.
+* Handles Active & Archived grouping, sorting, search and filter pills.
 * @param {Object} courseInfo - The dictionary of course metadata.
 * @param {string} [filterText=''] - Optional text to filter the list.
 */
 function renderCoursesInSettings(courseInfo, filterText = '', targetContainerId = 'settings-courses-container') {
     const container = document.getElementById(targetContainerId) || document.getElementById('settings-courses-container') || document.getElementById('settings-course-grid');
     if (!container) return;
+    closeRowMenus();
 
-    container.innerHTML = '';
+    const facets = settingsCourseFacets[container.id] ||
+        (settingsCourseFacets[container.id] = { semester: null, year: null, lecturer: null, expanded: false });
 
     // 1. Prepare Search Terms
     const lowerFilter = filterText.toLowerCase().trim();
     const strippedFilter = lowerFilter.replace(/\s+/g, '');
 
-    // 2. Filter and Sort Data
-    const filteredCourses = Object.entries(courseInfo || {})
+    // 2. Search
+    const searched = Object.entries(courseInfo || {})
         .filter(([name, data]) => {
             if (!lowerFilter) return true;
 
@@ -11335,162 +11661,142 @@ function renderCoursesInSettings(courseInfo, filterText = '', targetContainerId 
                 nameAsText.includes(lowerFilter) ||
                 nameStripped.includes(strippedFilter) ||
                 eisId.includes(lowerFilter);
-        })
-        .sort((a, b) => {
-            if (settingsCourseSort === 'code-asc') return courseCodeComparator(a, b);
-            if (settingsCourseSort === 'code-desc') return -courseCodeComparator(a, b);
-            if (settingsCourseSort === 'date-asc') {
-                const dateA = a[1]?.startDate || '';
-                const dateB = b[1]?.startDate || '';
-                if (dateA !== dateB) return dateA.localeCompare(dateB);
-                return courseCodeComparator(a, b);
-            }
-            if (settingsCourseSort === 'date-desc') {
-                const dateA = a[1]?.startDate || '';
-                const dateB = b[1]?.startDate || '';
-                if (dateA !== dateB) return dateB.localeCompare(dateA);
-                return courseCodeComparator(a, b);
-            }
-            return courseCodeComparator(a, b);
         });
 
-    // 3. Handle Empty State
-    if (filteredCourses.length === 0) {
-        container.innerHTML = `<div style="text-align:center; padding:30px; opacity:0.6; font-style:italic;">No courses found matching "${escapeHtml(filterText)}".</div>`;
-        return;
-    }
+    // 3. Filter pills narrow the loaded rows. `except` leaves one group out, so
+    // its own counts show what choosing another of its values would give.
+    const matchesFacets = (entry, except = null) => COURSE_FACETS.every(({ id }) =>
+        id === except || !facets[id] || courseFacetValues(entry[1], id).some(value => value.key === facets[id]));
 
-    const activeList = filteredCourses.filter(([_, d]) => !d.archived);
-    const archivedList = filteredCourses.filter(([_, d]) => !!d.archived);
-
-    let isArchivedCollapsed = localStorage.getItem('settings_archived_collapsed') !== 'false';
-
-    const renderTable = (courses, isArchivedTable = false) => {
-        if (courses.length === 0) {
-            return `<div style="text-align:center; padding:18px; opacity:0.6; font-style:italic;">No ${isArchivedTable ? 'archived' : 'active'} courses.</div>`;
-        }
-
-        const rows = courses.map(([courseName, data]) => {
-            const cleanCode = getCleanCourseCode(courseName, data.eisId);
-            const eisBadge = data.eisId
-                ? `<span class="badge-eis">#${escapeHtml(data.eisId)}</span>`
-                : '';
-            const startDate = data.startDate
-                ? `<span style="white-space:nowrap;"><i class="fa-regular fa-calendar-days" style="opacity:0.7; margin-right:4px;"></i>${escapeHtml(data.startDate)}</span>`
-                : `<span style="opacity:0.4;">—</span>`;
-
-            const rawAdmins = (data.adminEmails || '').toString().split(',').map(e => e.trim()).filter(Boolean);
-            let adminDisplay = '<span style="opacity:0.4;">None</span>';
-            if (rawAdmins.length > 2) {
-                adminDisplay = `<span class="badge-count" style="background:#e8f5e9; color:#2e7d32;"><i class="fa-solid fa-user-shield"></i> ${rawAdmins.length} Admins</span>`;
-            } else if (rawAdmins.length > 0) {
-                adminDisplay = `<span style="font-size:0.9em; word-break:break-all;"><i class="fa-solid fa-user-shield" style="opacity:0.6; margin-right:4px;"></i>${escapeHtml(rawAdmins.join(', '))}</span>`;
-            }
-
-            return `
-                <tr ${isArchivedTable ? 'style="opacity:0.75;"' : ''}>
-                    <td>
-                        <strong style="color:var(--text-color); font-size:1.02em;">${escapeHtml(cleanCode)}</strong>
-                        ${eisBadge}
-                    </td>
-                    <td>${startDate}</td>
-                    <td>${adminDisplay}</td>
-                    <td class="actions-cell">
-                        <div class="actions-cell-content">
-                            <button class="btn-blue btn-icon edit-course-row-btn" data-course-name="${escapeHtml(courseName)}" title="Edit Course">
-                                <i class="fa-solid fa-pencil"></i>
-                            </button>
-                        </div>
-                    </td>
-                </tr>
-            `;
-        }).join('');
-
-        const codeSortIcon = settingsCourseSort.startsWith('code')
-            ? (settingsCourseSort.endsWith('asc') ? 'fa-sort-up' : 'fa-sort-down')
-            : 'fa-sort';
-        const dateSortIcon = settingsCourseSort.startsWith('date')
-            ? (settingsCourseSort.endsWith('asc') ? 'fa-sort-up' : 'fa-sort-down')
-            : 'fa-sort';
-
-        return `
-            <div class="table-container">
-                <table class="database-table">
-                    <thead>
-                        <tr>
-                            <th class="sortable-settings-course" data-sort="code" style="cursor:pointer;" title="Sort by Course Code">
-                                Course Code <i class="sort-icon fa-solid ${codeSortIcon}" style="margin-left:4px; opacity:0.7;"></i>
-                            </th>
-                            <th class="sortable-settings-course" data-sort="date" style="cursor:pointer;" title="Sort by Start Date">
-                                Start Date <i class="sort-icon fa-solid ${dateSortIcon}" style="margin-left:4px; opacity:0.7;"></i>
-                            </th>
-                            <th>Admin</th>
-                            <th class="actions-header">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>${rows}</tbody>
-                </table>
-            </div>
-        `;
+    const byDate = (a, b) => String(a[1]?.startDate || '').localeCompare(String(b[1]?.startDate || ''));
+    const sorters = {
+        'term': compareCoursesForDisplay,
+        'code-asc': courseCodeComparator,
+        'code-desc': (a, b) => -courseCodeComparator(a, b),
+        'date-asc': (a, b) => byDate(a, b) || courseCodeComparator(a, b),
+        'date-desc': (a, b) => byDate(b, a) || courseCodeComparator(a, b)
     };
+    const filteredCourses = searched.filter(entry => matchesFacets(entry))
+        .sort(sorters[settingsCourseSort] || compareCoursesForDisplay);
 
-    let html = `
-        <div class="settings-courses-group">
-            <div class="settings-group-header">
-                <strong><i class="fa-solid fa-book-open" style="color:var(--primary-color);"></i> Active Courses</strong>
-                <span class="badge-count">${activeList.length}</span>
-            </div>
-            ${renderTable(activeList, false)}
-        </div>
-    `;
+    // A pill group appears only when it can narrow the list, or while one of
+    // its pills is chosen so it can be cleared. Same order as the list.
+    const facetsHtml = COURSE_FACETS.map(({ id, label }) => {
+        const counts = new Map();
+        searched.filter(entry => matchesFacets(entry, id)).forEach(entry => {
+            new Map(courseFacetValues(entry[1], id).map(value => [value.key, value])).forEach(value => {
+                const current = counts.get(value.key) || { ...value, count: 0 };
+                current.count++;
+                counts.set(value.key, current);
+            });
+        });
+        if (facets[id] && !counts.has(facets[id])) counts.set(facets[id], { key: facets[id], label: facets[id], count: 0 });
+        if (counts.size < 2 && !facets[id]) return '';
+        let values = [...counts.values()].sort(
+            id === 'year' ? (a, b) => (b.start || 0) - (a.start || 0) || a.key.localeCompare(b.key) :
+                id === 'semester' ? (a, b) => (TERM_ORDER[a.key] ?? 9) - (TERM_ORDER[b.key] ?? 9) :
+                    (a, b) => compareLecturers(a.full || a.label, b.full || b.label));
+        let more = '';
+        if (id === 'lecturer' && !facets.expanded && values.length > LECTURER_PILLS + 1) {
+            const hidden = values.length - LECTURER_PILLS;
+            values = values.filter((value, index) => index < LECTURER_PILLS || value.key === facets[id]);
+            more = `<button type="button" class="more" data-facet-more>+${hidden} more</button>`;
+        }
+        return `<div class="settings-facet" role="group" aria-label="${label}"><span class="settings-facet-label">${label}</span>${values.map(value =>
+            `<button type="button" data-facet="${id}" data-value="${escapeHtml(value.key)}" aria-pressed="${value.key === facets[id]}">${escapeHtml(value.label)}<span>${value.count}</span></button>`).join('')}${more}</div>`;
+    }).join('');
 
-    if (archivedList.length > 0 || !lowerFilter) {
+    let html = facetsHtml ? `<div class="settings-facets">${facetsHtml}</div>` : '';
+
+    // 4. Handle Empty State
+    if (filteredCourses.length === 0) {
+        html += `<div class="settings-empty">No courses found${filterText.trim() ? ` matching "${escapeHtml(filterText)}"` : ''}.</div>`;
+    } else {
+        const activeList = filteredCourses.filter(([_, d]) => !d.archived);
+        const archivedList = filteredCourses.filter(([_, d]) => !!d.archived);
+        const isArchivedCollapsed = localStorage.getItem('settings_archived_collapsed') !== 'false';
+
+        // Code, then lecturers on a muted line; the term tells offerings apart.
+        const courseRow = ([courseName, data]) => {
+            const cleanCode = getCleanCourseCode(courseName, data.eisId);
+            const term = courseTerm(data);
+            const lecturers = courseLecturers(data);
+            const people = lecturers.length ? lecturers.join(', ') : 'No lecturers assigned';
+            const start = term ? term.date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+            return `
+                <div class="settings-row${data.archived ? ' is-archived' : ''}">
+                    <div class="settings-row-main">
+                        <span class="settings-row-title"><strong>${escapeHtml(cleanCode)}</strong>${data.eisId ? ` <span class="settings-row-eis selectable">#${escapeHtml(String(data.eisId))}</span>` : ''}${data.archived ? ' <span class="settings-row-state">Archived</span>' : ''}</span>
+                        <span class="settings-row-people${lecturers.length ? '' : ' is-empty'}" title="${escapeHtml(people)}">${escapeHtml(people)}</span>
+                    </div>
+                    ${term ? `<div class="settings-row-meta">
+                        <span class="settings-row-term">${escapeHtml(term.label)}</span>
+                        <span class="settings-row-sub" title="Start date">${escapeHtml(start)}</span>
+                    </div>` : ''}
+                    <div class="card-actions">
+                        ${rowEditButtonHtml(`Edit ${cleanCode}`, 'edit-course-row-btn', `data-course-name="${escapeHtml(courseName)}"`)}
+                    </div>
+                </div>`;
+        };
+        const listHtml = (courses, kind) => courses.length
+            ? `<div class="settings-list">${courses.map(courseRow).join('')}</div>`
+            : `<div class="settings-empty">No ${kind} courses.</div>`;
+
         html += `
             <div class="settings-courses-group">
-                <div class="settings-archived-toggle" id="settings-archived-toggle-btn">
-                    <div style="display:flex; align-items:center; gap:8px;">
-                        <i class="fa-solid fa-chevron-right archived-toggle-chevron ${isArchivedCollapsed ? '' : 'is-open'}" id="archived-toggle-chevron"></i>
-                        <strong><i class="fa-solid fa-box-archive" style="color:#8c6a3a;"></i> Archived Courses</strong>
-                        <span class="badge-count" style="background:#efebe9; color:#5d4037;">${archivedList.length}</span>
-                    </div>
-                </div>
+                <div class="settings-group-label">Active courses <span class="settings-group-count">${activeList.length}</span></div>
+                ${listHtml(activeList, 'active')}
+            </div>`;
+
+        if (archivedList.length > 0 || !lowerFilter) {
+            html += `
+            <div class="settings-courses-group">
+                <button type="button" class="settings-group-label settings-archived-toggle" id="settings-archived-toggle-btn" aria-expanded="${!isArchivedCollapsed}" aria-controls="settings-archived-wrapper">
+                    <i class="fa-solid fa-chevron-right archived-toggle-chevron ${isArchivedCollapsed ? '' : 'is-open'}" id="archived-toggle-chevron" aria-hidden="true"></i>
+                    Archived courses <span class="settings-group-count">${archivedList.length}</span>
+                </button>
                 <div class="settings-archived-collapse-wrapper ${isArchivedCollapsed ? '' : 'is-open'}" id="settings-archived-wrapper">
-                    <div class="settings-archived-collapse-inner">
-                        ${renderTable(archivedList, true)}
-                    </div>
+                    <div class="settings-archived-collapse-inner">${listHtml(archivedList, 'archived')}</div>
                 </div>
-            </div>
-        `;
+            </div>`;
+        }
     }
 
     container.innerHTML = html;
 
-    // Attach Toggle Listener for Animated Archived Accordion
+    // Attach Toggle Listener for the Archived Accordion
     const toggleBtn = container.querySelector('.settings-archived-toggle') || container.querySelector('#settings-archived-toggle-btn');
     if (toggleBtn) {
         toggleBtn.onclick = () => {
-            isArchivedCollapsed = !isArchivedCollapsed;
-            localStorage.setItem('settings_archived_collapsed', isArchivedCollapsed ? 'true' : 'false');
+            const collapse = toggleBtn.getAttribute('aria-expanded') === 'true';
+            localStorage.setItem('settings_archived_collapsed', collapse ? 'true' : 'false');
+            toggleBtn.setAttribute('aria-expanded', String(!collapse));
             const wrapper = container.querySelector('.settings-archived-collapse-wrapper') || container.querySelector('#settings-archived-wrapper');
             const chevron = toggleBtn.querySelector('.archived-toggle-chevron') || toggleBtn.querySelector('#archived-toggle-chevron') || toggleBtn.querySelector('.fa-chevron-right');
-            if (wrapper) wrapper.classList.toggle('is-open', !isArchivedCollapsed);
-            if (chevron) chevron.classList.toggle('is-open', !isArchivedCollapsed);
+            if (wrapper) wrapper.classList.toggle('is-open', !collapse);
+            if (chevron) chevron.classList.toggle('is-open', !collapse);
         };
     }
 
-    // Attach Header Sort Listeners
-    container.querySelectorAll('.sortable-settings-course').forEach(th => {
-        th.onclick = () => {
-            const sortKey = th.dataset.sort;
-            if (settingsCourseSort === `${sortKey}-asc`) {
-                settingsCourseSort = `${sortKey}-desc`;
-            } else {
-                settingsCourseSort = `${sortKey}-asc`;
-            }
-            localStorage.setItem('settings_course_sort', settingsCourseSort);
-            renderCoursesInSettings(courseInfo, filterText, targetContainerId);
-        };
-    });
+    // Filter pills: bound once per list, re-rendering with the latest data and search.
+    container._rerenderCourses = () => renderCoursesInSettings(courseInfo, filterText, targetContainerId);
+    if (!container._facetsBound) {
+        container._facetsBound = true;
+        container.addEventListener('click', (event) => {
+            const more = event.target.closest('[data-facet-more]');
+            const pill = event.target.closest('[data-facet]');
+            if (!more && !pill) return;
+            const state = settingsCourseFacets[container.id];
+            if (more) state.expanded = true;
+            else state[pill.dataset.facet] = state[pill.dataset.facet] === pill.dataset.value ? null : pill.dataset.value;
+            container._rerenderCourses();
+            // Keep keyboard focus on the same pill after the list re-renders.
+            const selector = pill
+                ? `[data-facet="${pill.dataset.facet}"][data-value="${CSS.escape(pill.dataset.value)}"]`
+                : '[data-facet="lecturer"]';
+            container.querySelector(selector)?.focus({ preventScroll: true });
+        });
+    }
 
     // Attach Edit Listeners
     container.querySelectorAll('.edit-course-row-btn').forEach(btn => {
@@ -11502,44 +11808,34 @@ function renderCoursesInSettings(courseInfo, filterText = '', targetContainerId 
 }
 
 /**
-* Strips academic and honorific titles (Prof., Dr., Assoc., Acad., MSc., Mr., Ms., Mrs., and combinations) from staff name for pure alphabetical sorting.
-*/
-function getCleanStaffNameForSort(name) {
-    if (!name) return '';
-    const titleTokenPattern = /^(?:Prof|Dr|Assoc|Acad|MSc|M\.Sc|Ph\.?D|Mr|Ms|Mrs)\.?(?:\s+|$)/i;
-    let clean = name.trim();
-    while (titleTokenPattern.test(clean)) {
-        clean = clean.replace(titleTokenPattern, '').trim();
-    }
-    return clean;
-}
-
-/**
-* Renders the staff members list grouped by role and sorted alphabetically (ignoring academic titles).
+* Renders staff as compact rows grouped by role: staff by title, then name
+* without titles; students A–Z.
 */
 function renderStaffInSettings(staffList, filterText = '') {
     const container = document.getElementById('settings-staff-container');
     if (!container) return;
+    closeRowMenus();
     container.innerHTML = '';
 
     const lowerFilter = filterText.toLowerCase().trim();
     const filtered = (staffList || []).filter(s => {
         if (!lowerFilter) return true;
         return (s.name && s.name.toLowerCase().includes(lowerFilter)) ||
+            (s.googleName && s.googleName.toLowerCase().includes(lowerFilter)) ||
             (s.email && s.email.toLowerCase().includes(lowerFilter)) ||
             (s.role && s.role.toLowerCase().includes(lowerFilter));
     });
 
     if (filtered.length === 0) {
-        container.innerHTML = `<div style="text-align:center; padding:30px; opacity:0.6; font-style:italic;">No staff members found.</div>`;
+        container.innerHTML = `<div class="settings-empty">No staff members found.</div>`;
         return;
     }
 
     // Group staff by position
     const roleGroups = [
-        { name: 'Global Administrators', icon: 'fa-user-shield', items: filtered.filter(s => s.role === 'Global') },
-        { name: 'Lecturers & Staff', icon: 'fa-user-tie', items: filtered.filter(s => s.role !== 'Global' && s.role !== 'Student') },
-        { name: 'Students', icon: 'fa-graduation-cap', items: filtered.filter(s => s.role === 'Student') }
+        { name: 'Global Administrators', byTitle: true, items: filtered.filter(s => s.role === 'Global') },
+        { name: 'Lecturers & Staff', byTitle: true, items: filtered.filter(s => s.role !== 'Global' && s.role !== 'Student') },
+        { name: 'Students', byTitle: false, items: filtered.filter(s => s.role === 'Student') }
     ];
 
     let html = '';
@@ -11547,68 +11843,38 @@ function renderStaffInSettings(staffList, filterText = '') {
     roleGroups.forEach(group => {
         if (group.items.length === 0) return;
 
-        // Sort alphabetically ignoring academic titles
-        group.items.sort((a, b) => {
-            const cleanA = getCleanStaffNameForSort(a.name);
-            const cleanB = getCleanStaffNameForSort(b.name);
-            return cleanA.localeCompare(cleanB);
-        });
+        group.items.sort((a, b) => group.byTitle
+            ? compareLecturers(staffDisplayName(a), staffDisplayName(b))
+            : staffDisplayName(a).localeCompare(staffDisplayName(b), undefined, { sensitivity: 'base' }));
 
+        // The custom name when set, otherwise the Google name; the photo comes from Google sign-in.
         const rows = group.items.map(s => {
-            const isGlobal = (s.role === 'Global');
-            const roleBadge = isGlobal
-                ? `<span style="background:var(--purple-color); color:white; padding:2px 6px; border-radius:4px; font-size:0.8em;">ADMIN</span>`
-                : `<span style="opacity:0.7; font-size:0.85em;">${escapeHtml(s.role || 'Lecturer')}</span>`;
-
+            const role = s.role === 'Global' ? 'Administrator' : (s.role || 'Lecturer');
+            const shown = staffDisplayName(s);
+            const named = !!(s.name || s.googleName);
+            const index = `data-row-index="${escapeHtml(String(s.rowIndex))}"`;
             return `
-                <tr>
-                    <td style="font-weight:500;">
-                        ${escapeHtml(s.name)}
-                    </td>
-                    <td>${escapeHtml(s.email)}</td>
-                    <td>${roleBadge}</td>
-                    <td class="actions-cell">
-                        <div class="actions-cell-content">
-                            <button class="btn-blue btn-icon edit-staff-btn" 
-                                data-row-index="${s.rowIndex}" 
-                                data-name="${escapeHtml(s.name)}" 
-                                data-uid="${escapeHtml(s.uid)}" 
-                                data-email="${escapeHtml(s.email)}" 
-                                data-role="${escapeHtml(s.role || 'Lecturer')}"
-                                title="Edit">
-                                <i class="fa-solid fa-pencil"></i>
-                            </button>
-                            <button class="btn-red btn-icon delete-staff-btn" 
-                                data-row-index="${s.rowIndex}" 
-                                data-name="${escapeHtml(s.name)}"
-                                title="Delete">
-                                <i class="fa-solid fa-trash"></i>
-                            </button>
-                        </div>
-                    </td>
-                </tr>
+                <div class="settings-row is-person">
+                    ${userAvatarHtml(shown, s.photo, 'user-avatar settings-row-avatar')}
+                    <div class="settings-row-main">
+                        <span class="settings-row-title">${escapeHtml(shown)}</span>
+                        <span class="settings-row-people${named ? '' : ' is-empty'}"><span class="settings-row-role">${escapeHtml(role)} · </span>${named ? `<span class="selectable">${escapeHtml(s.email)}</span>` : 'Name appears after their first Google sign-in'}</span>
+                    </div>
+                    <div class="settings-row-meta"><span class="settings-row-term">${escapeHtml(role)}</span></div>
+                    <div class="card-actions">
+                        ${rowEditButtonHtml(`Edit ${shown}`, 'edit-staff-btn',
+                `${index} data-name="${escapeHtml(s.name)}" data-google-name="${escapeHtml(s.googleName)}" data-uid="${escapeHtml(s.uid)}" data-email="${escapeHtml(s.email)}" data-role="${escapeHtml(s.role || 'Lecturer')}"`)}
+                        ${rowMenuHtml([{ label: 'Revoke access', icon: 'fa-solid fa-trash', danger: true, className: 'delete-staff-btn', attrs: `${index} data-name="${escapeHtml(shown)}"` }],
+                    `More actions for ${shown}`)}
+                    </div>
+                </div>
             `;
         }).join('');
 
         html += `
             <div class="settings-courses-group">
-                <div class="settings-group-header">
-                    <strong><i class="fa-solid ${group.icon}" style="color:var(--primary-color);"></i> ${group.name}</strong>
-                    <span class="badge-count">${group.items.length}</span>
-                </div>
-                <div class="table-container">
-                    <table class="database-table">
-                        <thead>
-                            <tr>
-                                <th>Name</th>
-                                <th>Email</th>
-                                <th>Position</th>
-                                <th class="actions-header">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>${rows}</tbody>
-                    </table>
-                </div>
+                <div class="settings-group-label">${group.name} <span class="settings-group-count">${group.items.length}</span></div>
+                <div class="settings-list">${rows}</div>
             </div>
         `;
     });
@@ -11617,7 +11883,7 @@ function renderStaffInSettings(staffList, filterText = '') {
 
     // Attach Staff Listeners
     container.querySelectorAll('.edit-staff-btn').forEach(btn => {
-        btn.onclick = () => window.editStaffKey(btn.dataset.rowIndex, btn.dataset.name, btn.dataset.uid, btn.dataset.email, btn.dataset.role);
+        btn.onclick = () => window.editStaffKey(btn.dataset.rowIndex, btn.dataset.name, btn.dataset.uid, btn.dataset.email, btn.dataset.role, btn.dataset.googleName);
     });
     container.querySelectorAll('.delete-staff-btn').forEach(btn => {
         btn.onclick = () => window.deleteStaffKey(btn.dataset.rowIndex, btn.dataset.name);
@@ -11818,7 +12084,12 @@ async function handleNfcReading({ serialNumber }) {
                 if (otpError) throw otpError;
 
                 localStorage.setItem(KIOSK_MODE_KEY, '1');
-                currentUser = data.user;
+                // A staff row may have no custom name yet; the avatar draws its own initials.
+                currentUser = {
+                    ...data.user,
+                    name: data.user.name || data.user.email,
+                    picture: /ui-avatars\.com/.test(data.user.picture || '') ? '' : data.user.picture
+                };
                 showNotification('success', 'Session Active', `Welcome, ${currentUser.name}`);
                 playSound(true);
                 await onSuccessfulAuth(false);
@@ -12088,8 +12359,8 @@ function showNotification(type, title, message, duration = 5000) {
     }
 
     notification.innerHTML = `
-        <i class="fa-solid fa-${icon}"></i>
-        <div style="flex-grow:1;">
+        <i class="fa-solid fa-${icon}" aria-hidden="true"></i>
+        <div class="in-page-notification-text">
             <strong>${title}</strong><br>
             ${message}
         </div>
@@ -12275,8 +12546,6 @@ function populateCourseButtons() {
         courseButtonsContainer.style.display = 'flex';
     }
 
-    courseButtonsContainer.innerHTML = '';
-
     let coursesToDisplay = availableCourses;
 
     // For global admins, add the guest course if they're visiting one
@@ -12287,28 +12556,42 @@ function populateCourseButtons() {
     // Filter out archived courses, but keep the guestCourse if it's an archived one being visited
     coursesToDisplay = coursesToDisplay.filter(c => !courseInfoMap[c]?.archived || c === guestCourse);
 
-    // Sort course buttons naturally
-    coursesToDisplay.sort((a, b) => courseCodeComparator([a, courseInfoMap[a]], [b, courseInfoMap[b]]));
+    // Newest academic year first, Summer → Spring → Fall, then by course number
+    coursesToDisplay.sort((a, b) => compareCoursesForDisplay([a, courseInfoMap[a]], [b, courseInfoMap[b]]));
 
-    coursesToDisplay.forEach(course => {
-        const button = document.createElement('div');
-        button.setAttribute('class', 'course-button' + (currentCourse === course ? ' active' : ''));
-        button.dataset.course = course;
+    const buttons = coursesToDisplay.map(course => {
+        const code = getCleanCourseCode(course, courseInfoMap[course]?.eisId);
+        const repeated = coursesToDisplay.some(other => other !== course && getCleanCourseCode(other) === code);
+        const offering = repeated ? String(courseInfoMap[course]?.eisId || courseInfoMap[course]?.startDate || course) : '';
+        return { course, code, offering, guest: course === guestCourse };
+    });
 
-        // Mark guest courses visually
-        if (course === guestCourse) {
-            button.classList.add('btn-orange');
-        }
+    // The row stays mounted while the courses are unchanged; only the selection moves,
+    // so the selected tab's icon can close smoothly.
+    const signature = JSON.stringify(buttons);
+    if (courseButtonsContainer.dataset.signature !== signature || !courseButtonsContainer.children.length) {
+        courseButtonsContainer.dataset.signature = signature;
+        courseButtonsContainer.innerHTML = '';
+        buttons.forEach(({ course, code, offering, guest }) => {
+            const button = document.createElement('div');
+            button.setAttribute('class', 'course-button');
+            button.setAttribute('role', 'button');
+            button.tabIndex = 0;
+            button.dataset.course = course;
 
-        const cleanCourseName = getCleanCourseCode(course, courseInfoMap[course]?.eisId);
-        button.innerHTML = `<i class="fa-solid fa-table-list"></i>&nbsp; ${escapeHtml(cleanCourseName)}`;
-        if (coursesToDisplay.some(other => other !== course && getCleanCourseCode(other) === cleanCourseName)) {
-            const offering = courseInfoMap[course]?.eisId || courseInfoMap[course]?.startDate || course;
-            button.innerHTML += ` <small class="course-offering-id">${escapeHtml(String(offering))}</small>`;
-        }
-        button.title = course.replace(/_/g, ' ');
-        button.addEventListener('click', () => selectCourseButton(course));
-        courseButtonsContainer.appendChild(button);
+            // Mark guest courses visually
+            if (guest) button.classList.add('btn-orange');
+
+            button.innerHTML = `<i class="fa-solid fa-table-list fa-fw course-button-icon" aria-hidden="true"></i><span class="course-button-label">${escapeHtml(code)}${offering ? `<small class="course-offering-id">${escapeHtml(offering)}</small>` : ''}</span>`;
+            button.title = course.replace(/_/g, ' ');
+            button.addEventListener('click', () => selectCourseButton(course));
+            courseButtonsContainer.appendChild(button);
+        });
+    }
+    courseButtonsContainer.querySelectorAll('.course-button').forEach(button => {
+        const selected = button.dataset.course === currentCourse;
+        button.classList.toggle('active', selected);
+        button.setAttribute('aria-pressed', String(selected));
     });
 
     if (!currentCourse && coursesToDisplay.length > 0) {
@@ -12322,18 +12605,28 @@ function populateCourseButtons() {
     if (!courseButtonsContainer._rowObserver) {
         courseButtonsContainer._rowObserver = new ResizeObserver(() => updateButtonRows(courseButtonsContainer));
         courseButtonsContainer._rowObserver.observe(courseButtonsContainer);
+        // The selected tab changes width as its icon closes; re-tag the rows once it settles.
+        courseButtonsContainer.addEventListener('transitionend', (event) => {
+            if (event.propertyName !== 'width' || !event.target.classList?.contains('course-button-icon')) return;
+            updateButtonRows(courseButtonsContainer);
+            const active = courseButtonsContainer.querySelector('.course-button.active');
+            if (active && courseButtonsContainer.scrollWidth > courseButtonsContainer.clientWidth) {
+                active.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+            }
+        });
     }
 }
 
 function selectCourseButton(course) {
     // Give instant visual feedback by updating classes immediately
-    document.querySelectorAll('.course-button').forEach(btn => {
+    document.querySelectorAll('#course-buttons-container .course-button').forEach(btn => {
         btn.classList.remove('active');
         btn.classList.remove('selecting');
-        // Check dataset course or inner text to find the correct button to activate
-        if (btn.dataset.course === course || (!btn.dataset.course && btn.innerText.trim().replace(/\s+/g, '_') === course)) {
+        btn.setAttribute('aria-pressed', 'false');
+        if (btn.dataset.course === course) {
             btn.classList.add('selecting'); // Add selecting feedback
             btn.classList.add('active');
+            btn.setAttribute('aria-pressed', 'true');
             // Remove selecting class after a short delay
             setTimeout(() => btn.classList.remove('selecting'), 150);
         }

@@ -36,26 +36,41 @@
             --transition-curve: ease-out;
         }
 
-        /* Website download in lecturer and administrator settings. */
+        /* Website download in a lecturer's My Courses. The dialog's own paragraph
+           margins are reset here so the text block and button centre on one line. */
         .website-download {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            gap: 12px;
-            flex-wrap: wrap;
+            gap: 10px 16px;
             flex-shrink: 0;
             padding: 14px 20px;
             border-bottom: 1px solid rgba(0, 0, 0, 0.06);
             user-select: none;
         }
 
-        .website-download-copy { flex: 1 1 220px; }
-        .website-download-copy strong { font-size: 0.9em; }
-        .website-download-copy p { margin: 4px 0 0; font-size: 0.8em; opacity: 0.75; }
-        .website-download button { flex-shrink: 0; white-space: nowrap; }
+        .website-download .website-download-copy { flex: 1 1 auto; min-width: 0; line-height: 1.35; }
+        .website-download .website-download-copy strong { display: block; font-size: 0.9em; }
+        .website-download .website-download-copy p { margin: 2px 0 0; font-size: 0.8em; line-height: 1.4; opacity: 0.75; }
+        .website-download .website-download-copy p[hidden] { display: none; }
+        .website-download button {
+            flex-shrink: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            margin: 0;
+            white-space: nowrap;
+        }
         .website-download-copy .website-download-error { color: var(--danger-color); opacity: 1; }
         .dark-mode .website-download { border-bottom-color: rgba(255, 255, 255, 0.1); }
         #lecturer-courses-container, #settings-courses-container { min-height: 0; }
+
+        /* Phones: the text takes the full width and the button sits on its own line. */
+        @media (max-width: 560px) {
+            .website-download { flex-direction: column; align-items: stretch; padding: 12px 16px; }
+            .website-download button { width: 100%; min-height: 40px; }
+        }
 
         /* --- Settings & Admin Profile Styles --- */
         .settings-grid {
@@ -92,9 +107,9 @@
 
             transition: color 0.2s, background-color 0.2s;
             border-radius: 8px 8px 0 0;
-            display: flex;
+            display: inline-flex;
             align-items: center;
-            gap: 8px;
+            justify-content: center;
 
             /* Enforce stable font rendering */
             font-weight: 600;
@@ -905,10 +920,6 @@
             display: none !important;
         }
 
-        #user-avatar {
-            cursor: default;
-        }
-
         body.is-admin .admin-only {
             display: block !important;
         }
@@ -1277,25 +1288,22 @@
             font-size: 0.9em;
             vertical-align: middle;
             line-height: 30px;
-            transition: all 0.2s ease;
+            white-space: nowrap;
+            transition: background-color 0.2s ease, border-radius 0.2s ease;
         }
 
+        /* Rounded outer ends per visual row, tagged by updateButtonRows(). */
         .info-item.first-in-row {
-            border-top-left-radius: var(--border-radius) !important;
-            border-bottom-left-radius: var(--border-radius) !important;
+            border-radius: 10px 4px 4px 10px;
         }
 
         .info-item.last-in-row {
-            border-top-right-radius: var(--border-radius) !important;
-            border-bottom-right-radius: var(--border-radius) !important;
+            border-radius: 4px 10px 10px 4px;
         }
 
-        .info-item.only-in-row {
-            border-radius: var(--border-radius) !important;
-        }
-
+        .info-item.only-in-row,
         .info-item.middle-in-row {
-            border-radius: var(--border-radius) !important;
+            border-radius: 10px;
         }
 
         .tabs {
@@ -1307,8 +1315,7 @@
         .tabs.tabs-ready {
             display: flex;
             margin-top: 20px;
-            gap: 1px;
-            /* Add this to create space between the tabs */
+            gap: 2px;
         }
 
         .tab {
@@ -1317,7 +1324,8 @@
             text-align: center;
             font-weight: 500;
             cursor: pointer;
-            transition: all 0.15s ease-out;
+            transition: background-color 0.15s ease-out, border-color 0.15s ease-out, box-shadow 0.15s ease-out,
+                transform 0.15s ease-out, border-radius 0.25s cubic-bezier(.4, 0, .2, 1);
             user-select: none;
             /* Standard property */
             display: flex;
@@ -1344,21 +1352,25 @@
             background-color: #000c503b;
         }
 
+        /* Segmented: round outer ends, tight inner corners; hovered and selected tabs round fully. */
+        .tab:first-child {
+            border-radius: 20px 8px 8px 20px;
+        }
+
+        .tab:last-child {
+            border-radius: 8px 20px 20px 8px;
+        }
+
+        .tab:only-child,
+        .tab:hover,
+        .tab.active {
+            border-radius: var(--border-radius-lg);
+        }
+
         .tab.active {
             background-color: #000c503b;
             box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.25);
             transform: scale(0.96);
-            border-radius: var(--border-radius-lg);
-        }
-
-        .tab:first-child {
-            border-top-left-radius: var(--border-radius-lg);
-            border-bottom-left-radius: var(--border-radius-lg);
-        }
-
-        .tab:last-child {
-            border-top-right-radius: var(--border-radius-lg);
-            border-bottom-right-radius: var(--border-radius-lg);
         }
 
         .tab-content {
@@ -1367,7 +1379,6 @@
             visibility: hidden;
             height: 0;
             overflow: hidden;
-            transition: opacity 0.3s ease-in-out;
         }
 
         .tab-content.active {
@@ -1507,7 +1518,7 @@
             display: flex;
             flex-wrap: wrap;
             justify-content: flex-start;
-            gap: 4px 3px;
+            gap: 6px 2px;
             overflow-x: visible;
             margin-bottom: 20px;
         }
@@ -2461,11 +2472,6 @@
         /* This shows it ONLY for signed-in non-admins */
         body:not(.is-admin) #user-container #request-permission-btn {
             display: inline-flex !important;
-            /* Shown only for non-admins */
-            align-items: center;
-            gap: 8px;
-            padding-left: 14px;
-            padding-right: 14px;
         }
 
         body:not(.is-admin) #session-controls {
@@ -2682,32 +2688,6 @@
 
         .logs-table tr.day-separator .btn-icon.active {
             transform: translateY(-50%) scale(0.90);
-            border-radius: var(--border-radius);
-        }
-
-        /* Round the LEFT corners of the FIRST button in each group */
-        .logs-actions .btn-icon:first-child,
-        .database-actions .btn-icon:first-child,
-        .logs-actions .btn:first-child,
-        .database-actions .btn:first-child {
-            border-top-left-radius: var(--border-radius);
-            border-bottom-left-radius: var(--border-radius);
-        }
-
-        /* Round the RIGHT corners of the LAST button in each group */
-        .logs-actions .btn-icon:last-child,
-        .database-actions .btn-icon:last-child,
-        .logs-actions .btn:last-child,
-        .database-actions .btn:last-child {
-            border-top-right-radius: var(--border-radius);
-            border-bottom-right-radius: var(--border-radius);
-        }
-
-        /* Hover rounds every corner to the same radius as the group's outer corners. */
-        .logs-actions .btn-icon:hover:not(:disabled),
-        .database-actions .btn-icon:hover:not(:disabled),
-        .logs-actions .btn-icon:focus-visible,
-        .database-actions .btn-icon:focus-visible {
             border-radius: var(--border-radius);
         }
 
@@ -3302,8 +3282,7 @@
 
         .logs-table .day-separator .btn-icon,
         .delete-time-btn.btn-icon,
-        #sync-btn.btn-icon,
-        #logout-btn.btn-icon {
+        #sync-btn.btn-icon {
             width: 30px;
             height: 30px;
         }
@@ -3499,9 +3478,8 @@
             align-items: center;
             padding: 0 15px;
             box-sizing: border-box;
-            opacity: 0;
-            backdrop-filter: blur(0px);
-            animation: backdrop-flow 0.4s ease forwards;
+            backdrop-filter: blur(8px);
+            animation: backdrop-flow 0.2s ease-out backwards;
             overscroll-behavior: contain;
             touch-action: none;
         }
@@ -3521,7 +3499,7 @@
             }
         }
 
-        /* BOUNCY dialog entrance */
+        /* Dialog card */
         .dialog {
             background-color: var(--card-background);
             color: var(--text-color);
@@ -3535,36 +3513,12 @@
             box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
             border: 1px solid rgba(0, 0, 0, 0.05);
             overflow: hidden;
-            /* BOUNCY entrance - starts small, overshoots, settles */
-            transform: scale(0.8) translateY(40px);
-            opacity: 0;
-            animation: dialog-bounce 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+            /* A short, calm entrance. "backwards" leaves no transform behind once it ends. */
+            animation: dialog-enter 0.2s ease-out backwards;
             touch-action: auto;
             overscroll-behavior: contain;
         }
 
-
-        /* BOUNCY dialog animation - elastic overshoot */
-        @keyframes dialog-bounce {
-            0% {
-                transform: scale(0.8) translateY(40px);
-                opacity: 0;
-            }
-
-            60% {
-                transform: scale(1.03) translateY(-5px);
-                opacity: 1;
-            }
-
-            80% {
-                transform: scale(0.99) translateY(2px);
-            }
-
-            100% {
-                transform: scale(1) translateY(0);
-                opacity: 1;
-            }
-        }
 
         /* Ensure content has breathing room */
         .dialog-content {
@@ -3927,12 +3881,12 @@
 
         @keyframes dialog-enter {
             from {
-                transform: scale(0.96);
+                transform: translateY(4px) scale(0.985);
                 opacity: 0;
             }
 
             to {
-                transform: scale(1);
+                transform: none;
                 opacity: 1;
             }
         }
@@ -4268,10 +4222,6 @@
         body:not(.is-admin) #register-uid-btn {
             display: inline-flex;
             /* Shown only for non-admins */
-            align-items: center;
-            gap: 8px;
-            padding-left: 14px;
-            padding-right: 14px;
         }
 
         /* Auth styles */
@@ -4288,36 +4238,6 @@
             display: flex;
             align-items: center;
             gap: 10px;
-        }
-
-        .user-avatar {
-            width: 30px;
-            height: 30px;
-            border-radius: 50%;
-            transition: opacity 0.3s ease, transform 0.3s ease;
-        }
-
-        .user-avatar:active {
-            transform: scale(0.95);
-        }
-
-        /* Style for when avatar transforms into button */
-        .user-avatar-button {
-            width: 30px !important;
-            height: 30px !important;
-            border-radius: 50% !important;
-            padding: 0 !important;
-            display: inline-flex !important;
-            align-items: center !important;
-            justify-content: center !important;
-            font-size: 14px !important;
-            min-width: unset !important;
-        }
-
-
-        .student-profile-chip #user-avatar,
-        .student-profile-chip #user-name {
-            cursor: pointer;
         }
 
         /* --- Student Picker Styles --- */
@@ -4433,57 +4353,6 @@
             background-color: rgba(92, 107, 192, 0.08);
         }
 
-        /* Styles for the student profile chip */
-        .student-profile-chip {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            /* Space between avatar and name */
-            padding: 4px 12px 4px 4px;
-            /* T-R-B-L padding */
-            background-color: var(--card-background);
-            border: 1px solid #e0e0e0;
-            /* Light border */
-            border-radius: 20px;
-            /* Fully rounded pill shape */
-            cursor: pointer;
-            transition: background-color 0.2s ease-out, box-shadow 0.2s ease-out, transform 0.1s ease-out;
-            user-select: none;
-            /* This ensures it sits correctly with the other buttons */
-            vertical-align: middle;
-        }
-
-        .student-profile-chip:hover {
-            background-color: #f5f5f5;
-            /* Light grey hover */
-            border-color: var(--primary-color);
-        }
-
-        .student-profile-chip:active {
-            background-color: #e0e0e0;
-            /* Darker grey active */
-            box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
-            transform: scale(0.98);
-        }
-
-        /* Make the avatar inside the chip fit */
-        .student-profile-chip .user-avatar {
-            width: 28px;
-            /* Slightly smaller avatar */
-            height: 28px;
-        }
-
-        /* Make the name inside the chip look right */
-        .student-profile-chip #user-name {
-            font-weight: 500;
-            color: var(--text-color);
-            /* Use standard text color */
-            text-decoration: none !important;
-            /* Remove any underline */
-            padding-right: 4px;
-            /* Add a little space at the end */
-        }
-
         .student-profile-header {
             margin-top: 15px;
             margin-bottom: 10px;
@@ -4590,28 +4459,6 @@
         .request-list-details small {
             font-size: 0.85em;
             opacity: 0.8;
-        }
-
-        /* Dark mode styles for the chip */
-        .dark-mode .student-profile-chip {
-            background-color: var(--card-background);
-            border-color: #555;
-        }
-
-        .dark-mode .student-profile-chip:hover {
-            background-color: #333;
-            /* Dark hover */
-            border-color: #777;
-        }
-
-        .dark-mode .student-profile-chip:active {
-            background-color: #444;
-            /* Darker active */
-            box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.3);
-        }
-
-        .dark-mode .student-profile-chip #user-name {
-            color: var(--text-color);
         }
 
         .sync-auth-container {
@@ -5043,15 +4890,6 @@
             color: #e0e0e0;
         }
 
-        #logout-btn {
-            background-color: var(--danger-color);
-            color: white;
-        }
-
-        #logout-btn:hover {
-            background-color: #d32f2f;
-        }
-
         /* Hide sync status when signed out */
         body:not(.is-admin) .sync-container {
             display: none;
@@ -5396,7 +5234,7 @@
 
             .course-buttons-container {
                 margin-bottom: 20px;
-                gap: 8px 4px;
+                gap: 6px 2px;
             }
 
             .logs-table tr.day-separator td {
@@ -5529,7 +5367,7 @@
 
 
             /* Hide Desktop-focused elements */
-            .app-header .info-item:nth-child(2) {
+            .app-header .app-info:not(.signin-chips) .info-item:nth-child(2) {
                 display: none !important;
             }
 
@@ -5538,18 +5376,6 @@
             #scanner-tab .module {
                 margin-top: -10px;
                 /* Close the gap from hidden header items */
-            }
-
-            #scanner-tab .table-container {
-                transition: opacity 0.3s ease-in-out, transform 0.3s ease-in-out;
-                opacity: 1;
-                transform: translateY(0);
-            }
-
-            /* Define the 'reloading' state */
-            #scanner-tab .table-container.reloading {
-                opacity: 0;
-                transform: translateY(15px);
             }
 
             /* --- Animation Definitions --- */
@@ -5604,28 +5430,8 @@
             }
 
             .user-info {
-                flex-wrap: wrap;
-                /* This will make the buttons wrap to the next line */
                 justify-content: flex-end;
-                /* Keep items aligned to the right */
-            }
-
-            /* Hide user name on mobile */
-            .user-info #user-name {
-                display: none;
-            }
-
-            .student-profile-chip {
-                padding-right: 4px;
-                /* Match the left padding (was 12px) */
-                gap: 0;
-                /* Remove the gap */
-            }
-
-            #login-btn {
-                padding: 12px 25px;
-                font-size: 1.0em;
-                width: 100%;
+                gap: 8px;
             }
 
             .logs-table,
@@ -5665,10 +5471,6 @@
             pointer-events: none;
             opacity: 0.8;
             cursor: wait;
-        }
-
-        #login-btn.loading {
-            background-color: #9e9e9e;
         }
 
         .course-button.loading {
@@ -5805,25 +5607,7 @@
         /* --- Mobile Breakpoint 500px (QoL Improvement) --- */
         @media (max-width: 500px) {
 
-            /* Ensure minimum tap target sizes on small screens */
-            .user-info .btn-icon,
-            .user-info .btn-sm {
-                min-width: 44px;
-                min-height: 44px;
-            }
-
-            .user-info #register-uid-btn .btn-text,
-            .user-info #request-permission-btn .btn-text {
-                display: none;
-            }
-
-            /* User avatar sizing */
-            .user-info .user-avatar {
-                width: 36px;
-                height: 36px;
-            }
-
-            /* Prevent info-item overflow */
+            /* Chips keep their text on one line; a chip too long for the row ends in "…". */
             .info-item {
                 flex-shrink: 1;
                 min-width: 0;
@@ -6175,42 +5959,6 @@
             margin-bottom: 20px;
         }
 
-        .settings-group-header {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-bottom: 12px;
-        }
-
-        .settings-archived-toggle {
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-top: 20px;
-            margin-bottom: 12px;
-            padding: 10px 14px;
-            background: rgba(0, 0, 0, 0.03);
-            border: 1px solid rgba(0, 0, 0, 0.06);
-            border-radius: 8px;
-            user-select: none;
-            -webkit-user-select: none;
-            transition: background 0.15s ease;
-        }
-
-        .settings-archived-toggle:hover {
-            background: rgba(0, 0, 0, 0.06);
-        }
-
-        .dark-mode .settings-archived-toggle {
-            background: rgba(255, 255, 255, 0.05);
-            border-color: rgba(255, 255, 255, 0.08);
-        }
-
-        .dark-mode .settings-archived-toggle:hover {
-            background: rgba(255, 255, 255, 0.09);
-        }
-
         #archived-toggle-chevron {
             display: inline-block;
             transition: transform 0.2s ease;
@@ -6230,37 +5978,2966 @@
             display: block;
         }
 
-        .badge-eis {
-            display: inline-block;
-            font-size: 0.75em;
-            font-family: monospace;
-            font-weight: 600;
-            background: rgba(0, 0, 0, 0.06);
-            color: var(--text-secondary, #666);
-            padding: 2px 6px;
-            border-radius: 4px;
-            margin-left: 6px;
-        }
+/* =========================================================================
+   Layout refresh: the Syllabase / Timetable redesign mapped onto Stando.
+   Dark mode is the .dark-mode class on <html>. The Font Awesome kit swaps
+   <i> for <svg>, so every icon selector covers both.
+   ========================================================================= */
 
-        .dark-mode .badge-eis {
-            background: rgba(255, 255, 255, 0.1);
-            color: #bbb;
-        }
+/* --- Paragraph text: justified, with hyphenation from <html lang>. The last line
+   stays left-aligned. Centred text, table cells, chips and labels are left out. --- */
+.dialog-content > p,
+.dialog-disclaimer,
+.req-note,
+.website-download .website-download-copy p,
+.in-page-notification-text,
+.collapsible-content p {
+    text-align: justify;
+    -webkit-hyphens: auto;
+    hyphens: auto;
+    text-wrap: pretty;
+}
 
-        .badge-count {
-            display: inline-block;
-            font-size: 0.8em;
-            font-weight: 700;
-            background: var(--primary-light, #e3f2fd);
-            color: var(--primary-color, #1976d2);
-            padding: 2px 8px;
-            border-radius: 12px;
-        }
+/* Long tokens (addresses, IDs, error text) break only when they would overflow. */
+.dialog-content > p,
+.in-page-notification-text,
+.error-message,
+.person-email,
+.email-cell,
+.settings-device-id small {
+    overflow-wrap: anywhere;
+}
 
-        .dark-mode .badge-count {
-            background: rgba(33, 150, 243, 0.2);
-            color: #64b5f6;
-        }
+.in-page-notification-text {
+    flex-grow: 1;
+    min-width: 0;
+}
+
+/* --- Top bar: the photo + name chip opens Settings or the profile --- */
+.top-bar-user {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.85em;
+    line-height: 1;
+}
+
+button.top-bar-user {
+    padding: 4px 12px 4px 4px;
+    background: transparent;
+    color: inherit;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    box-shadow: none;
+    font-family: inherit;
+    font-weight: 500;
+    transition: background-color 0.18s ease, border-color 0.18s ease, transform 0.12s ease;
+}
+
+button.top-bar-user:not(:disabled) {
+    cursor: pointer;
+}
+
+button.top-bar-user:hover:not(:disabled) {
+    background: rgba(57, 73, 171, 0.08);
+    border-color: rgba(57, 73, 171, 0.25);
+    box-shadow: none;
+    filter: none;
+    font-weight: 500;
+}
+
+button.top-bar-user:active:not(:disabled) {
+    transform: scale(0.97);
+    box-shadow: none;
+    filter: none;
+}
+
+button.top-bar-user:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+}
+
+/* Dim the name, not the photo. Long names end in "…" rather than wrapping. */
+.top-bar-user > span:last-child {
+    max-width: 24ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    opacity: 0.88;
+}
+
+/* Photo over initials: a missing or broken photo leaves the initials showing. */
+.user-avatar {
+    position: relative;
+    display: inline-grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    overflow: hidden;
+    background: rgba(57, 73, 171, 0.15);
+    color: var(--primary-dark);
+    font-size: 0.8em;
+    font-weight: 700;
+    line-height: 1;
+    user-select: none;
+}
+
+.user-avatar img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.user-avatar-lg {
+    width: 44px;
+    height: 44px;
+    font-size: 1em;
+    box-shadow: 0 0 0 2px var(--card-background), 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.dark-mode .user-avatar {
+    background: rgba(121, 134, 203, 0.22);
+    color: #c5cae9;
+}
+
+.dark-mode button.top-bar-user:hover:not(:disabled) {
+    background: rgba(121, 134, 203, 0.16);
+    border-color: rgba(121, 134, 203, 0.35);
+}
+
+/* Top-bar actions: tinted by meaning (sign out red, request amber, register blue). */
+#logout-btn,
+#register-uid-btn,
+#request-permission-btn {
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 36px;
+    padding: 0 14px;
+    border: 1px solid;
+    border-radius: 18px;
+    font-family: inherit;
+    font-size: 0.82em;
+    font-weight: 500;
+    line-height: 1;
+    white-space: nowrap;
+    box-shadow: none;
+    transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.12s ease;
+}
+
+#logout-btn {
+    display: inline-flex;
+    background: rgba(229, 57, 53, 0.08);
+    border-color: rgba(229, 57, 53, 0.35);
+    color: #c62828;
+}
+
+#logout-btn:hover:not(:disabled) {
+    background: rgba(229, 57, 53, 0.16);
+    border-color: rgba(229, 57, 53, 0.45);
+}
+
+#register-uid-btn {
+    background: rgba(57, 73, 171, 0.08);
+    border-color: rgba(57, 73, 171, 0.35);
+    color: var(--primary-color);
+}
+
+#register-uid-btn:hover:not(:disabled) {
+    background: rgba(57, 73, 171, 0.16);
+    border-color: rgba(57, 73, 171, 0.45);
+}
+
+#request-permission-btn {
+    background: rgba(251, 140, 0, 0.08);
+    border-color: rgba(251, 140, 0, 0.35);
+    color: #e65100;
+}
+
+#request-permission-btn:hover:not(:disabled) {
+    background: rgba(251, 140, 0, 0.16);
+    border-color: rgba(251, 140, 0, 0.45);
+}
+
+#logout-btn:hover:not(:disabled),
+#register-uid-btn:hover:not(:disabled),
+#request-permission-btn:hover:not(:disabled) {
+    box-shadow: none;
+    filter: none;
+    font-weight: 500;
+}
+
+#logout-btn:active:not(:disabled),
+#register-uid-btn:active:not(:disabled),
+#request-permission-btn:active:not(:disabled) {
+    transform: scale(0.97);
+    box-shadow: none;
+    filter: none;
+}
+
+.dark-mode #logout-btn {
+    background: rgba(239, 83, 80, 0.14);
+    border-color: rgba(239, 83, 80, 0.4);
+    color: #ef9a9a;
+}
+
+.dark-mode #logout-btn:hover:not(:disabled) {
+    background: rgba(239, 83, 80, 0.24);
+}
+
+.dark-mode #register-uid-btn {
+    background: rgba(121, 134, 203, 0.14);
+    border-color: rgba(121, 134, 203, 0.4);
+    color: #c5cae9;
+}
+
+.dark-mode #register-uid-btn:hover:not(:disabled) {
+    background: rgba(121, 134, 203, 0.24);
+}
+
+.dark-mode #request-permission-btn {
+    background: rgba(255, 183, 77, 0.14);
+    border-color: rgba(255, 183, 77, 0.4);
+    color: #ffcc80;
+}
+
+.dark-mode #request-permission-btn:hover:not(:disabled) {
+    background: rgba(255, 183, 77, 0.24);
+}
+
+/* Signed out, the top bar is empty: the header banner carries the sign-in. */
+body.signed-out .sync-auth-container {
+    display: none;
+}
+
+/* --- Signed out: the header banner with the Google button inside it --- */
+.app-header .signin-chips {
+    display: none;
+}
+
+body.signed-out .app-header .app-info.signin-chips {
+    display: flex;
+}
+
+#login-container {
+    margin-top: 18px;
+}
+
+.app-header .btn-google {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    min-height: 44px;
+    padding: 10px 22px;
+    border: 1.5px solid transparent;
+    border-radius: 22px;
+    background: #fff;
+    color: #3c4043;
+    font-family: inherit;
+    font-size: 0.95em;
+    font-weight: 500;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+.app-header .btn-google:hover:not(:disabled) {
+    background: #fff;
+    color: #3c4043;
+    border-color: transparent;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    filter: none;
+    font-weight: 500;
+}
+
+.app-header .btn-google:active:not(:disabled) {
+    transform: scale(0.97);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+    filter: none;
+}
+
+.app-header .btn-google:disabled {
+    opacity: 0.85;
+    cursor: wait;
+}
+
+.app-header .btn-google:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: 3px;
+}
+
+.google-icon {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+}
+
+.not-signed-in-message {
+    margin: 0 0 20px;
+}
+
+/* --- Tabs: the selected tab drops its icon and shows a bold, centred label --- */
+.tab-icon {
+    flex-shrink: 0;
+    width: 1.25em;
+    margin-right: 0.35em;
+    font-size: 0.88em;
+    transition: width 0.22s cubic-bezier(.4, 0, .2, 1), margin 0.22s cubic-bezier(.4, 0, .2, 1), opacity 0.18s ease;
+}
+
+/* The kit's <svg> draws outside its box by default; the closing icon must not. */
+.tab .tab-icon,
+.settings-tab-btn .tab-icon,
+.course-button .tab-icon {
+    overflow: hidden;
+}
+
+.tab.active .tab-icon,
+.settings-tab-btn.active .tab-icon,
+.course-button.active > .tab-icon {
+    width: 0;
+    margin-right: 0;
+    opacity: 0;
+}
+
+/* The label always reserves its bold width (a hidden copy), so switching doesn't shift the row. */
+.tab-label {
+    display: inline-grid;
+    text-align: center;
+}
+
+.tab-label::after {
+    content: attr(data-label);
+    height: 0;
+    overflow: hidden;
+    visibility: hidden;
+    font-weight: 700;
+    pointer-events: none;
+    user-select: none;
+}
+
+.tab.active .tab-label,
+.settings-tab-btn.active .tab-label,
+.course-button.active > .tab-label {
+    font-weight: 700;
+}
+
+.settings-tab-btn {
+    font-family: inherit;
+}
+
+/* --- Segmented groups: round outer ends, tight inner corners, a 2px seam; the
+   hovered segment rounds fully. Position counts among direct children only. --- */
+.logs-actions,
+.database-actions {
+    gap: 2px;
+}
+
+.logs-actions > .btn-icon,
+.database-actions > .btn-icon {
+    height: 32px;
+    min-width: 32px;
+    padding: 0 12px;
+    gap: 6px;
+    border: 1px solid rgba(0, 0, 0, 0.14);
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.03);
+    color: #455a64;
+    font-family: inherit;
+    font-size: 0.8em;
+    font-weight: 500;
+    box-shadow: none;
+    transition: border-radius 0.25s cubic-bezier(.4, 0, .2, 1), background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+}
+
+.logs-actions > .btn-icon:first-child,
+.database-actions > .btn-icon:first-child {
+    border-radius: 16px 6px 6px 16px;
+}
+
+.logs-actions > .btn-icon:last-child,
+.database-actions > .btn-icon:last-child {
+    border-radius: 6px 16px 16px 6px;
+}
+
+.logs-actions > .btn-icon:only-child,
+.database-actions > .btn-icon:only-child,
+.logs-actions > .btn-icon:hover:not(:disabled),
+.database-actions > .btn-icon:hover:not(:disabled),
+.logs-actions > .btn-icon:focus-visible,
+.database-actions > .btn-icon:focus-visible {
+    border-radius: 16px;
+}
+
+/* Tinted by meaning: neutral grey, blue for data in and out, green to add, red to delete. */
+.logs-actions > .btn-icon:hover:not(:disabled),
+.database-actions > .btn-icon:hover:not(:disabled) {
+    background: rgba(0, 0, 0, 0.07);
+    border-color: rgba(0, 0, 0, 0.22);
+    color: #37474f;
+    box-shadow: none;
+    filter: none;
+    font-weight: 500;
+}
+
+.logs-actions > .btn-icon:active:not(:disabled),
+.database-actions > .btn-icon:active:not(:disabled) {
+    transform: scale(0.97);
+    box-shadow: none;
+    filter: none;
+}
+
+.logs-actions > .btn-blue,
+.database-actions > .btn-blue {
+    background: rgba(57, 73, 171, 0.08);
+    border-color: rgba(57, 73, 171, 0.35);
+    color: var(--primary-color);
+}
+
+.logs-actions > .btn-blue:hover:not(:disabled),
+.database-actions > .btn-blue:hover:not(:disabled) {
+    background: rgba(57, 73, 171, 0.16);
+    border-color: rgba(57, 73, 171, 0.45);
+    color: var(--primary-color);
+}
+
+.logs-actions > .btn-green,
+.database-actions > .btn-green {
+    background: rgba(67, 160, 71, 0.08);
+    border-color: rgba(67, 160, 71, 0.4);
+    color: #2e7d32;
+}
+
+.logs-actions > .btn-green:hover:not(:disabled),
+.database-actions > .btn-green:hover:not(:disabled) {
+    background: rgba(67, 160, 71, 0.16);
+    border-color: rgba(67, 160, 71, 0.5);
+    color: #2e7d32;
+}
+
+.logs-actions > .btn-red,
+.database-actions > .btn-red {
+    background: rgba(229, 57, 53, 0.08);
+    border-color: rgba(229, 57, 53, 0.35);
+    color: #c62828;
+}
+
+.logs-actions > .btn-red:hover:not(:disabled),
+.database-actions > .btn-red:hover:not(:disabled) {
+    background: rgba(229, 57, 53, 0.16);
+    border-color: rgba(229, 57, 53, 0.45);
+    color: #c62828;
+}
+
+.dark-mode .logs-actions > .btn-icon,
+.dark-mode .database-actions > .btn-icon {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.16);
+    color: #cfd8dc;
+}
+
+.dark-mode .logs-actions > .btn-icon:hover:not(:disabled),
+.dark-mode .database-actions > .btn-icon:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.26);
+    color: #eceff1;
+}
+
+.dark-mode .logs-actions > .btn-blue,
+.dark-mode .database-actions > .btn-blue {
+    background: rgba(121, 134, 203, 0.14);
+    border-color: rgba(121, 134, 203, 0.4);
+    color: #c5cae9;
+}
+
+.dark-mode .logs-actions > .btn-blue:hover:not(:disabled),
+.dark-mode .database-actions > .btn-blue:hover:not(:disabled) {
+    background: rgba(121, 134, 203, 0.24);
+    border-color: rgba(121, 134, 203, 0.5);
+    color: #c5cae9;
+}
+
+.dark-mode .logs-actions > .btn-green,
+.dark-mode .database-actions > .btn-green {
+    background: rgba(102, 187, 106, 0.14);
+    border-color: rgba(102, 187, 106, 0.4);
+    color: #a5d6a7;
+}
+
+.dark-mode .logs-actions > .btn-green:hover:not(:disabled),
+.dark-mode .database-actions > .btn-green:hover:not(:disabled) {
+    background: rgba(102, 187, 106, 0.24);
+    border-color: rgba(102, 187, 106, 0.5);
+    color: #a5d6a7;
+}
+
+.dark-mode .logs-actions > .btn-red,
+.dark-mode .database-actions > .btn-red {
+    background: rgba(239, 83, 80, 0.14);
+    border-color: rgba(239, 83, 80, 0.4);
+    color: #ef9a9a;
+}
+
+.dark-mode .logs-actions > .btn-red:hover:not(:disabled),
+.dark-mode .database-actions > .btn-red:hover:not(:disabled) {
+    background: rgba(239, 83, 80, 0.24);
+    border-color: rgba(239, 83, 80, 0.5);
+    color: #ef9a9a;
+}
+
+/* Bulk selection bar (on the primary colour): one segmented group, tinted by meaning. */
+.bulk-actions-group {
+    gap: 2px;
+}
+
+.bulk-actions-bar .bulk-actions-group > .btn-icon {
+    border: 1px solid transparent;
+    border-radius: 8px;
+    box-shadow: none;
+    transition: border-radius 0.25s cubic-bezier(.4, 0, .2, 1), filter 0.15s ease, background-color 0.2s ease;
+}
+
+.bulk-actions-bar .bulk-actions-group > .btn-icon:first-child {
+    border-radius: 20px 8px 8px 20px;
+}
+
+.bulk-actions-bar .bulk-actions-group > .btn-icon:last-child {
+    border-radius: 8px 20px 20px 8px;
+}
+
+.bulk-actions-bar .bulk-actions-group > .btn-icon:only-child,
+.bulk-actions-bar .bulk-actions-group > .btn-icon:hover:not(:disabled) {
+    border-radius: 20px;
+}
+
+.bulk-actions-bar .bulk-actions-group > .bulk-add {
+    background: rgba(102, 187, 106, 0.22);
+    border-color: rgba(165, 214, 167, 0.6);
+    color: #e8f5e9;
+}
+
+.bulk-actions-bar .bulk-actions-group > .bulk-remove {
+    background: rgba(255, 183, 77, 0.2);
+    border-color: rgba(255, 204, 128, 0.6);
+    color: #ffe0b2;
+}
+
+.bulk-actions-bar .bulk-actions-group > .bulk-delete {
+    background: rgba(239, 83, 80, 0.24);
+    border-color: rgba(255, 138, 128, 0.6);
+    color: #ffebee;
+}
+
+.bulk-actions-bar .bulk-actions-group > .btn-icon:hover:not(:disabled) {
+    transform: none;
+    box-shadow: none;
+    filter: brightness(1.08);
+}
+
+.bulk-actions-bar .bulk-actions-group > .bulk-add:hover:not(:disabled) {
+    background: rgba(102, 187, 106, 0.32);
+    color: #e8f5e9;
+}
+
+.bulk-actions-bar .bulk-actions-group > .bulk-remove:hover:not(:disabled) {
+    background: rgba(255, 183, 77, 0.3);
+    color: #ffe0b2;
+}
+
+.bulk-actions-bar .bulk-actions-group > .bulk-delete:hover:not(:disabled) {
+    background: rgba(239, 83, 80, 0.34);
+    color: #ffebee;
+}
+
+/* Session rows (Theory / Lab / Practice and groups): wrapped rows keep a row gap. */
+#session-category-group,
+#session-group-container {
+    row-gap: 6px;
+}
+
+/* Choice rows in the course editor read as one segmented control. */
+.segmented-choices {
+    gap: 2px !important;
+}
+
+.segmented-choices > .course-button:first-child {
+    border-radius: 20px 8px 8px 20px;
+}
+
+.segmented-choices > .course-button:last-child {
+    border-radius: 8px 20px 20px 8px;
+}
+
+.segmented-choices > .course-button:hover,
+.segmented-choices > .course-button.active {
+    border-radius: 20px;
+}
+
+/* --- Course buttons: the course icon, closing away on the selected tab --- */
+.course-button .course-button-icon {
+    flex-shrink: 0;
+    width: 1.25em;
+    margin-right: 0.45em;
+    overflow: hidden;
+    transition: width 0.26s cubic-bezier(.4, 0, .2, 1), margin 0.26s cubic-bezier(.4, 0, .2, 1), opacity 0.2s ease, transform 0.2s ease;
+}
+
+.course-button .course-button-label {
+    display: inline-flex;
+    align-items: center;
+    min-width: 0;
+    white-space: nowrap;
+}
+
+.course-button.active .course-button-label {
+    font-weight: 700;
+}
+
+.course-button.active .course-button-icon {
+    width: 0;
+    margin-right: 0;
+    opacity: 0;
+    transform: scale(0.6);
+    pointer-events: none;
+}
+
+.course-button:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+}
+
+/* --- Row actions: a quiet Edit and a ⋯ menu (Delete is never one tap away) --- */
+.card-actions {
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: nowrap;
+    gap: 2px;
+    flex-shrink: 0;
+}
+
+.row-edit-btn,
+.row-menu-btn,
+.quiet-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 32px;
+    padding: 0 12px;
+    border: 1px solid rgba(0, 0, 0, 0.12);
+    border-radius: 16px;
+    background: transparent;
+    color: #455a64;
+    font-family: inherit;
+    font-size: 0.8em;
+    font-weight: 500;
+    line-height: 1;
+    white-space: nowrap;
+    box-shadow: none;
+    transition: border-radius 0.25s cubic-bezier(.4, 0, .2, 1), background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+}
+
+.row-edit-btn i,
+.row-edit-btn svg,
+.quiet-btn i,
+.quiet-btn svg {
+    font-size: 0.85em;
+}
+
+.row-menu-btn {
+    width: 32px;
+    padding: 0;
+}
+
+.row-edit-btn:hover:not(:disabled),
+.row-menu-btn:hover:not(:disabled),
+.row-menu-btn[aria-expanded="true"],
+.quiet-btn:hover:not(:disabled) {
+    background: rgba(57, 73, 171, 0.08);
+    border-color: rgba(57, 73, 171, 0.3);
+    color: var(--primary-color);
+    box-shadow: none;
+    filter: none;
+    font-weight: 500;
+}
+
+.row-edit-btn:active:not(:disabled),
+.row-menu-btn:active:not(:disabled),
+.quiet-btn:active:not(:disabled) {
+    transform: scale(0.96);
+    box-shadow: none;
+    filter: none;
+}
+
+.row-menu {
+    position: relative;
+    display: inline-flex;
+}
+
+.settings-row > .card-actions {
+    display: flex;
+}
+
+/* Fixed to the viewport (the open list moves to <body>), so no table or dialog clips it. */
+.row-menu-list {
+    position: fixed;
+    z-index: 10040;
+    min-width: 170px;
+    padding: 6px;
+    border-radius: 14px;
+    background: var(--card-background, #fff);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.16);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 16px;
+    animation: rowMenuIn 0.12s ease-out;
+}
+
+.row-menu-list[hidden] {
+    display: none;
+}
+
+@keyframes rowMenuIn {
+    from {
+        opacity: 0;
+        transform: translateY(-3px);
+    }
+}
+
+.row-menu-list button {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 9px 12px;
+    border: none;
+    border-radius: 9px;
+    background: transparent;
+    color: #37474f;
+    font-family: inherit;
+    font-size: 0.86em;
+    font-weight: 500;
+    text-align: left;
+    white-space: nowrap;
+    box-shadow: none;
+}
+
+.row-menu-list button i,
+.row-menu-list button svg {
+    width: 16px;
+    text-align: center;
+    opacity: 0.7;
+}
+
+.row-menu-list button:hover:not(:disabled),
+.row-menu-list button:focus-visible {
+    background: rgba(57, 73, 171, 0.08);
+    color: var(--primary-color);
+    border-color: transparent;
+    box-shadow: none;
+    filter: none;
+    font-weight: 500;
+    outline: none;
+}
+
+.row-menu-list button:active:not(:disabled) {
+    transform: none;
+    box-shadow: none;
+    filter: none;
+}
+
+.row-menu-list button.is-danger {
+    color: #c62828;
+}
+
+.row-menu-list button.is-danger:hover:not(:disabled),
+.row-menu-list button.is-danger:focus-visible {
+    background: rgba(229, 57, 53, 0.08);
+    color: #c62828;
+}
+
+/* Edit | ⋯ read as one segmented control. Position counts among the row's
+   controls, not inside each menu's wrapper. */
+.card-actions > .row-edit-btn,
+.card-actions > .row-menu > .row-menu-btn {
+    border-radius: 6px;
+}
+
+.card-actions > .row-edit-btn:first-child,
+.card-actions > .row-menu:first-child > .row-menu-btn {
+    border-radius: 16px 6px 6px 16px;
+}
+
+.card-actions > .row-edit-btn:last-child,
+.card-actions > .row-menu:last-child > .row-menu-btn {
+    border-radius: 6px 16px 16px 6px;
+}
+
+.card-actions > .row-edit-btn:only-child,
+.card-actions > .row-menu:only-child > .row-menu-btn,
+.card-actions > .row-edit-btn:hover:not(:disabled),
+.card-actions > .row-menu > .row-menu-btn:hover:not(:disabled),
+.card-actions > .row-menu > .row-menu-btn[aria-expanded="true"] {
+    border-radius: 16px;
+}
+
+.dark-mode .row-edit-btn,
+.dark-mode .row-menu-btn,
+.dark-mode .quiet-btn {
+    border-color: rgba(255, 255, 255, 0.16);
+    color: #b0bec5;
+}
+
+.dark-mode .row-edit-btn:hover:not(:disabled),
+.dark-mode .row-menu-btn:hover:not(:disabled),
+.dark-mode .row-menu-btn[aria-expanded="true"],
+.dark-mode .quiet-btn:hover:not(:disabled) {
+    background: rgba(121, 134, 203, 0.16);
+    border-color: rgba(121, 134, 203, 0.4);
+    color: #c5cae9;
+}
+
+.dark-mode .row-menu-list {
+    background: #1e1f24;
+    border-color: rgba(255, 255, 255, 0.1);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+.dark-mode .row-menu-list button {
+    color: #e0e0e0;
+}
+
+.dark-mode .row-menu-list button:hover:not(:disabled),
+.dark-mode .row-menu-list button:focus-visible {
+    background: rgba(121, 134, 203, 0.16);
+    color: #c5cae9;
+}
+
+.dark-mode .row-menu-list button.is-danger {
+    color: #ef9a9a;
+}
+
+.dark-mode .row-menu-list button.is-danger:hover:not(:disabled),
+.dark-mode .row-menu-list button.is-danger:focus-visible {
+    background: rgba(239, 83, 80, 0.14);
+    color: #ef9a9a;
+}
+
+/* Approve / Reject stay visible: a green / red segmented pair. */
+.decision-pair {
+    gap: 2px;
+}
+
+.decision-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 32px;
+    padding: 0 12px;
+    border: 1px solid;
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 0.8em;
+    font-weight: 500;
+    line-height: 1;
+    white-space: nowrap;
+    box-shadow: none;
+    transition: border-radius 0.25s cubic-bezier(.4, 0, .2, 1), background-color 0.18s ease, border-color 0.18s ease;
+}
+
+.decision-pair > .decision-btn:first-child {
+    border-radius: 16px 6px 6px 16px;
+}
+
+.decision-pair > .decision-btn:last-child {
+    border-radius: 6px 16px 16px 6px;
+}
+
+.decision-pair > .decision-btn:hover:not(:disabled) {
+    border-radius: 16px;
+    box-shadow: none;
+    filter: none;
+    font-weight: 500;
+}
+
+.decision-btn:active:not(:disabled) {
+    transform: scale(0.96);
+    box-shadow: none;
+    filter: none;
+}
+
+.decision-btn.is-approve {
+    background: rgba(67, 160, 71, 0.08);
+    border-color: rgba(67, 160, 71, 0.4);
+    color: #2e7d32;
+}
+
+.decision-btn.is-approve:hover:not(:disabled) {
+    background: rgba(67, 160, 71, 0.16);
+    border-color: rgba(67, 160, 71, 0.5);
+}
+
+.decision-btn.is-reject {
+    background: rgba(229, 57, 53, 0.08);
+    border-color: rgba(229, 57, 53, 0.35);
+    color: #c62828;
+}
+
+.decision-btn.is-reject:hover:not(:disabled) {
+    background: rgba(229, 57, 53, 0.16);
+    border-color: rgba(229, 57, 53, 0.45);
+}
+
+.dark-mode .decision-btn.is-approve {
+    background: rgba(102, 187, 106, 0.14);
+    border-color: rgba(102, 187, 106, 0.4);
+    color: #a5d6a7;
+}
+
+.dark-mode .decision-btn.is-approve:hover:not(:disabled) {
+    background: rgba(102, 187, 106, 0.24);
+}
+
+.dark-mode .decision-btn.is-reject {
+    background: rgba(239, 83, 80, 0.14);
+    border-color: rgba(239, 83, 80, 0.4);
+    color: #ef9a9a;
+}
+
+.dark-mode .decision-btn.is-reject:hover:not(:disabled) {
+    background: rgba(239, 83, 80, 0.24);
+}
+
+/* A destructive action in a dialog footer: tinted, not a loud fill. */
+.dialog-actions .tint-danger {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(229, 57, 53, 0.08);
+    border: 1px solid rgba(229, 57, 53, 0.35);
+    color: #c62828;
+    box-shadow: none;
+}
+
+.dialog-actions .tint-danger:hover:not(:disabled) {
+    background: rgba(229, 57, 53, 0.16);
+    border-color: rgba(229, 57, 53, 0.45);
+    box-shadow: none;
+    filter: none;
+}
+
+.dark-mode .dialog-actions .tint-danger {
+    background: rgba(239, 83, 80, 0.14);
+    border-color: rgba(239, 83, 80, 0.4);
+    color: #ef9a9a;
+}
+
+.dark-mode .dialog-actions .tint-danger:hover:not(:disabled) {
+    background: rgba(239, 83, 80, 0.24);
+}
+
+/* Bare icon buttons (close ×, refresh): colour change only on hover, no circle. */
+.icon-only-btn {
+    display: inline-grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--text-color);
+    font-size: 1.15em;
+    box-shadow: none;
+}
+
+.icon-only-btn:hover:not(:disabled),
+.icon-only-btn:active:not(:disabled) {
+    background: transparent;
+    color: var(--primary-color);
+    box-shadow: none;
+    filter: none;
+    transform: none;
+}
+
+.dark-mode .icon-only-btn:hover:not(:disabled) {
+    color: var(--primary-light);
+}
+
+.module-header .refresh-btn:hover:not(:disabled),
+.module-header .refresh-btn:active:not(:disabled) {
+    background: transparent;
+    border-color: transparent;
+    color: #c5cae9;
+    box-shadow: none;
+    filter: none;
+    transform: none;
+}
+
+/* --- Panel headers (Absences, New Registrations) --- */
+.panel-header {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px 12px;
+    margin-bottom: 10px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid #f0f0f0;
+}
+
+.panel-title {
+    font-weight: 700;
+    color: var(--warning-color);
+    white-space: nowrap;
+    user-select: none;
+}
+
+.panel-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+}
+
+.dark-mode .panel-header {
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+.session-badge {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: #e3f2fd;
+    color: var(--primary-color);
+    font-size: 0.75em;
+    font-weight: 700;
+    text-transform: uppercase;
+    white-space: nowrap;
+    vertical-align: 1px;
+    user-select: none;
+}
+
+.dark-mode .session-badge {
+    background: rgba(121, 134, 203, 0.2);
+    color: #c5cae9;
+}
+
+#absences-tbody .person-cell {
+    min-width: 150px;
+}
+
+.person-name,
+#registrations-tbody td:first-child,
+#registrations-tbody td:nth-child(5) {
+    white-space: nowrap;
+}
+
+/* Long addresses break inside the e-mail column, so the actions stay in view. */
+#registrations-tbody td:nth-child(3) {
+    min-width: 140px;
+    overflow-wrap: anywhere;
+}
+
+.person-email {
+    display: block;
+    opacity: 0.7;
+}
+
+/* --- "My courses / All courses": a sliding two-way switch --- */
+.scope-switch {
+    --thumb: var(--card-background, #fff);
+    --active: var(--primary-color);
+    --mine: #37474f;
+    position: relative;
+    display: inline-flex;
+    padding: 3px;
+    border-radius: 12px;
+    background: rgba(0, 0, 0, 0.05);
+    isolation: isolate;
+}
+
+.scope-switch::before {
+    content: '';
+    position: absolute;
+    z-index: -1;
+    top: 3px;
+    bottom: 3px;
+    left: 3px;
+    width: calc(50% - 3px);
+    border-radius: 9px;
+    background: var(--thumb);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+    transition: transform 260ms cubic-bezier(.4, 0, .2, 1);
+}
+
+.scope-switch[data-active="all"]::before {
+    transform: translateX(100%);
+}
+
+.scope-switch button {
+    flex: 1 1 0;
+    padding: 6px 10px;
+    border: none;
+    border-radius: 9px;
+    background: transparent;
+    color: #78909c;
+    font-family: inherit;
+    font-size: 0.75em;
+    font-weight: 500;
+    white-space: nowrap;
+    box-shadow: none;
+    transition: color 260ms ease;
+}
+
+.scope-switch button:hover,
+.scope-switch button:active {
+    background: transparent;
+    box-shadow: none;
+    filter: none;
+    transform: none;
+}
+
+.scope-switch button[aria-pressed="false"]:hover {
+    color: inherit;
+    font-weight: 500;
+}
+
+/* My: dark grey; only the wider view (All) turns blue. */
+.scope-switch button[aria-pressed="true"] {
+    color: var(--mine);
+    font-weight: 600;
+}
+
+.scope-switch button[data-scope="all"][aria-pressed="true"] {
+    color: var(--active);
+}
+
+.dark-mode .scope-switch {
+    --thumb: rgba(255, 255, 255, 0.12);
+    --active: #9fa8da;
+    --mine: #e0e0e0;
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.dark-mode .scope-switch button[aria-pressed="false"]:not(:hover) {
+    color: #9e9e9e;
+}
+
+/* --- Settings dialogs: header, toolbar and search --- */
+.settings-modal-identity {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    min-width: 0;
+}
+
+.settings-avatar {
+    position: relative;
+    flex-shrink: 0;
+    width: 44px;
+    height: 44px;
+}
+
+.settings-modal-heading {
+    min-width: 0;
+}
+
+.settings-modal-heading h3 {
+    margin: 0;
+    font-size: 1.3em;
+    line-height: 1.2;
+}
+
+.settings-modal-sub {
+    font-size: 0.85em;
+    opacity: 0.7;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.settings-controls-bar {
+    position: static;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+    margin: 0;
+    padding: 14px 20px;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+    background: var(--card-background);
+}
+
+.dark-mode .settings-controls-bar {
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+.settings-controls-bar > .search {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.settings-controls-bar > button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    flex-shrink: 0;
+    height: 34px;
+    padding: 0 14px;
+    border: 1px solid rgba(67, 160, 71, 0.4);
+    border-radius: 17px;
+    background: rgba(67, 160, 71, 0.08);
+    color: #2e7d32;
+    font-family: inherit;
+    font-size: 0.82em;
+    font-weight: 500;
+    white-space: nowrap;
+    box-shadow: none;
+}
+
+.settings-controls-bar > button:hover:not(:disabled) {
+    background: rgba(67, 160, 71, 0.16);
+    border-color: rgba(67, 160, 71, 0.5);
+    color: #2e7d32;
+    box-shadow: none;
+    filter: none;
+    font-weight: 500;
+}
+
+.settings-controls-bar > button:active:not(:disabled) {
+    transform: scale(0.97);
+    box-shadow: none;
+    filter: none;
+}
+
+.dark-mode .settings-controls-bar > button {
+    background: rgba(102, 187, 106, 0.14);
+    border-color: rgba(102, 187, 106, 0.4);
+    color: #a5d6a7;
+}
+
+.dark-mode .settings-controls-bar > button:hover:not(:disabled) {
+    background: rgba(102, 187, 106, 0.24);
+    color: #a5d6a7;
+}
+
+.settings-sort-select {
+    flex-shrink: 0;
+    max-width: 42%;
+    height: 34px;
+    padding: 0 10px;
+    border: 1px solid #e0e0e0;
+    border-radius: 12px;
+    background-color: var(--card-background);
+    color: inherit;
+    font-family: inherit;
+    font-size: 0.82em;
+    cursor: pointer;
+}
+
+.settings-sort-select:hover,
+.settings-sort-select:focus {
+    border-color: var(--primary-color);
+    outline: none;
+}
+
+.dark-mode .settings-sort-select {
+    background-color: rgba(255, 255, 255, 0.05);
+    border-color: #444;
+    color: #e0e0e0;
+}
+
+/* Search inputs: the icon sits inside; focus is a soft shadow. */
+.search {
+    position: relative;
+}
+
+.search > i,
+.search > svg {
+    position: absolute;
+    top: 50%;
+    left: 12px;
+    z-index: 1;
+    transform: translateY(-50%);
+    font-size: 0.78em;
+    color: #90a4ae;
+    pointer-events: none;
+}
+
+.search input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px 12px 8px 32px;
+    border: 1px solid #e0e0e0;
+    border-radius: 12px;
+    background: var(--card-background, #fff);
+    color: inherit;
+    font-family: inherit;
+    font-size: 0.82em;
+    outline: none;
+    box-shadow: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.input-with-icon.search input {
+    padding-left: 32px !important;
+}
+
+.search input:hover:not(:focus):not(:disabled) {
+    box-shadow: none;
+}
+
+.search input:focus {
+    border-color: var(--primary-color);
+    box-shadow: 0 2px 8px rgba(57, 73, 171, 0.15);
+}
+
+.dark-mode .search input {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: #444;
+    color: #f0f0f0;
+}
+
+.dark-mode .search input:focus {
+    border-color: var(--primary-light);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
+/* Log and student filters: search and sort read as one pair. */
+.filter-container {
+    gap: 2px;
+}
+
+.filter-search {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.filter-search .filter-input {
+    min-width: 0;
+    border-radius: 12px 6px 6px 12px;
+}
+
+.filter-container > .sort-dropdown {
+    flex-shrink: 0;
+    max-width: 45%;
+    padding: 8px 12px;
+    border-radius: 6px 12px 12px 6px;
+    font-family: inherit;
+    font-size: 0.82em;
+}
+
+/* The request-history filter bar is sticky: flush in the flow, glass while it floats. */
+.history-filter-bar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    margin: 0 0 4px;
+    padding: 12px 0;
+    isolation: isolate;
+}
+
+.history-filter-bar::before {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    z-index: -1;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.65);
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.04) 48%, rgba(255, 255, 255, 0.16)), rgba(255, 255, 255, 0.5);
+    -webkit-backdrop-filter: blur(22px) saturate(160%);
+    backdrop-filter: blur(22px) saturate(160%);
+    box-shadow: 0 8px 24px -8px rgba(26, 35, 65, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 180ms ease, inset 180ms ease;
+}
+
+.history-filter-bar.is-stuck::before {
+    opacity: 1;
+    inset: -1px -10px;
+}
+
+.dark-mode .history-filter-bar::before {
+    border-color: rgba(255, 255, 255, 0.08);
+    background: linear-gradient(135deg, rgba(60, 60, 66, 0.55), rgba(28, 28, 30, 0.2) 48%, rgba(60, 60, 66, 0.3)), rgba(28, 28, 30, 0.6);
+    box-shadow: 0 8px 24px -8px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+/* --- Settings lists: compact rows, not tables or grids --- */
+.settings-scroll {
+    flex-grow: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 12px 20px 20px;
+}
+
+/* Rows must not touch; the padding keeps borders and focus rings from being cropped. */
+.settings-list {
+    display: grid;
+    gap: 10px;
+    padding: 6px;
+    margin: 0 -6px;
+}
+
+/* Sizes are rem-based, so nested text doesn't shrink step by step. */
+.settings-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+    padding: 10px 14px;
+    border: 1px solid #e6e8ef;
+    border-radius: 12px;
+    font-size: 0.9375rem;
+    transition: background-color 0.18s, border-color 0.18s;
+}
+
+.settings-row:hover {
+    background-color: rgba(0, 0, 0, 0.04);
+}
+
+.settings-row.is-selected {
+    background-color: rgba(57, 73, 171, 0.08);
+    border-color: var(--primary-color);
+}
+
+.settings-row:has(:focus-visible) {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+}
+
+.settings-row-avatar {
+    width: 36px;
+    height: 36px;
+    font-size: 0.8125rem;
+}
+
+.settings-row-main {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.settings-row-title {
+    display: block;
+    font-weight: 600;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+}
+
+.settings-row-title strong {
+    font-weight: 800;
+}
+
+.settings-row-eis {
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: #78909c;
+    font-variant-numeric: tabular-nums;
+}
+
+.settings-row-people {
+    display: block;
+    margin-top: 2px;
+    font-size: 0.8125rem;
+    color: #78909c;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.settings-row-people.is-empty {
+    font-style: italic;
+}
+
+.settings-row-meta {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 3px;
+    flex-shrink: 0;
+    text-align: right;
+}
+
+.settings-row-term {
+    font-weight: 700;
+    font-size: 0.875rem;
+    white-space: nowrap;
+}
+
+.settings-row-sub {
+    font-size: 0.8125rem;
+    color: #78909c;
+    white-space: nowrap;
+}
+
+/* A state is shown only as the exception: flat text, no icon. */
+.settings-row-state {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 7px;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.05);
+    color: #607d8b;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    vertical-align: 1px;
+    user-select: none;
+}
+
+.settings-row.is-archived .settings-row-title strong {
+    font-weight: 700;
+    opacity: 0.85;
+}
+
+.settings-empty {
+    padding: 24px 8px;
+    color: #90a4ae;
+    font-size: 0.9375rem;
+    font-style: italic;
+    text-align: center;
+}
+
+.dark-mode .settings-row {
+    border-color: rgba(255, 255, 255, 0.1);
+}
+
+.dark-mode .settings-row:hover {
+    background-color: rgba(255, 255, 255, 0.07);
+}
+
+.dark-mode .settings-row.is-selected {
+    background-color: rgba(57, 73, 171, 0.28);
+    border-color: var(--primary-light);
+}
+
+.dark-mode .settings-row-people,
+.dark-mode .settings-row-sub,
+.dark-mode .settings-row-eis {
+    color: #9eaab3;
+}
+
+.dark-mode .settings-row-state {
+    background: rgba(255, 255, 255, 0.08);
+    color: #b0bec5;
+}
+
+/* Group labels: small uppercase text followed by a hairline. */
+.settings-group-label {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    width: 100%;
+    margin: 0;
+    padding: 18px 4px 8px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #90a4ae;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    user-select: none;
+}
+
+.settings-group-label::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: #e8eaf0;
+}
+
+.settings-courses-group:first-child > .settings-group-label,
+.settings-facets + .settings-courses-group > .settings-group-label {
+    padding-top: 6px;
+}
+
+.settings-group-count {
+    font-variant-numeric: tabular-nums;
+}
+
+.settings-courses-group {
+    margin-bottom: 4px;
+}
+
+button.settings-group-label {
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    box-shadow: none;
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+button.settings-group-label:hover:not(:disabled),
+button.settings-group-label:active:not(:disabled) {
+    background: transparent;
+    color: var(--primary-color);
+    box-shadow: none;
+    filter: none;
+    transform: none;
+    font-weight: 700;
+}
+
+.settings-group-label .archived-toggle-chevron {
+    font-size: 0.95em;
+}
+
+.dark-mode .settings-group-label {
+    color: #8d99a3;
+}
+
+.dark-mode .settings-group-label::after {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.dark-mode button.settings-group-label:hover:not(:disabled) {
+    color: var(--primary-light);
+}
+
+.settings-device-note {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px 16px;
+    margin: 6px 0 4px;
+    padding: 12px 14px;
+    border: 1px solid rgba(33, 150, 243, 0.35);
+    border-radius: 12px;
+    background: rgba(33, 150, 243, 0.07);
+}
+
+.settings-device-id {
+    min-width: 0;
+}
+
+.settings-device-id strong {
+    display: block;
+    font-size: 0.9em;
+}
+
+.settings-device-id small {
+    display: block;
+    margin-top: 2px;
+    font-family: 'Google Sans Code', monospace;
+    opacity: 0.8;
+}
+
+.dark-mode .settings-device-note {
+    background: rgba(33, 150, 243, 0.12);
+    border-color: rgba(100, 181, 246, 0.35);
+}
+
+/* Filter pills: generated from the loaded rows; each shows its count. */
+.settings-facets {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 4px 0 2px;
+}
+
+.settings-facet {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+}
+
+.settings-facet-label {
+    min-width: 112px;
+    margin-right: 4px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #90a4ae;
+    user-select: none;
+}
+
+.settings-facet button {
+    padding: 4px 12px;
+    border: 1px solid #dfe3ea;
+    border-radius: 999px;
+    background: transparent;
+    color: #607d8b;
+    font-family: inherit;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    line-height: 1.5;
+    white-space: nowrap;
+    box-shadow: none;
+}
+
+.settings-facet button:hover:not(:disabled) {
+    color: var(--text-color);
+    background: rgba(0, 0, 0, 0.04);
+    border-color: #cfd6e0;
+    box-shadow: none;
+    filter: none;
+    font-weight: 500;
+}
+
+.settings-facet button:active:not(:disabled) {
+    transform: none;
+    box-shadow: none;
+    filter: none;
+}
+
+.settings-facet button[aria-pressed="true"],
+.settings-facet button[aria-pressed="true"]:hover:not(:disabled) {
+    color: var(--text-color);
+    background: rgba(57, 73, 171, 0.08);
+    border-color: var(--primary-color);
+    font-weight: 600;
+}
+
+/* The count. */
+.settings-facet button > span {
+    margin-left: 5px;
+    opacity: 0.7;
+    font-variant-numeric: tabular-nums;
+}
+
+.settings-facet .more {
+    border-style: dashed;
+}
+
+.dark-mode .settings-facet button {
+    border-color: rgba(255, 255, 255, 0.14);
+    color: #b0bec5;
+}
+
+.dark-mode .settings-facet button:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.07);
+    color: #e0e0e0;
+}
+
+.dark-mode .settings-facet button[aria-pressed="true"],
+.dark-mode .settings-facet button[aria-pressed="true"]:hover:not(:disabled) {
+    background: rgba(57, 73, 171, 0.28);
+    border-color: var(--primary-light);
+    color: #e0e0e0;
+}
+
+@media (max-width: 440px) {
+    .settings-row {
+        gap: 8px;
+        padding: 7px 8px;
+    }
+
+    /* The label sits above its pills. */
+    .settings-facet-label {
+        flex-basis: 100%;
+    }
+}
+
+/* --- Dialogs: sectioned forms and checklists --- */
+.form-section-title,
+.dialog-content .form-section-title {
+    margin: 18px 0 12px;
+    padding: 16px 0 0;
+    border-bottom: none;
+    border-top: 1px solid rgba(0, 0, 0, 0.08);
+    color: #78909c;
+    font-size: 0.72em;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    user-select: none;
+}
+
+.form-section-title:first-child,
+.dialog-disclaimer + .form-section-title,
+.profile-header-section + .form-section-title {
+    padding-top: 0;
+    border-top: none;
+}
+
+.dark-mode .form-section-title {
+    color: #90a4ae;
+    border-top-color: rgba(255, 255, 255, 0.08);
+}
+
+.required {
+    color: #e53935;
+}
+
+.dialog [aria-invalid="true"] {
+    border-color: #e53935 !important;
+}
+
+.student-list-container {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 4px;
+    border-radius: 12px;
+}
+
+.student-item,
+.student-item:last-child {
+    padding: 8px 12px;
+    border: 1px solid #e6e8ef;
+    border-radius: 12px;
+    transition: background-color 0.18s, border-color 0.18s;
+}
+
+.student-item:hover {
+    background-color: rgba(0, 0, 0, 0.04);
+}
+
+.student-item.selected {
+    background-color: rgba(57, 73, 171, 0.08);
+    border: 1px solid var(--primary-color);
+}
+
+.student-avatar-placeholder {
+    flex-shrink: 0;
+    width: 30px;
+    height: 30px;
+}
+
+.student-name {
+    font-weight: 600;
+}
+
+.dark-mode .student-item,
+.dark-mode .student-item:last-child {
+    border-color: rgba(255, 255, 255, 0.1);
+}
+
+.dark-mode .student-item:hover {
+    background-color: rgba(255, 255, 255, 0.07);
+}
+
+.dark-mode .student-item.selected {
+    background-color: rgba(57, 73, 171, 0.28);
+    border-color: var(--primary-light);
+}
+
+.profile-avatar-link {
+    display: inline-block;
+    border-radius: 50%;
+}
+
+/* --- Transitions: keep the frame, swap only the content --- */
+/* Mobile dialogs rise as bottom sheets. */
+@keyframes sheet-enter {
+    from {
+        transform: translateY(12px);
+        opacity: 0;
+    }
+
+    to {
+        transform: none;
+        opacity: 1;
+    }
+}
+
+@keyframes sectionIn {
+    from {
+        opacity: 0.5;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+/* During a course switch the previous table stays, dimmed and inert. */
+#scanner-tab .table-container[inert],
+#empty-logs[inert],
+#logs-pagination[inert] {
+    opacity: 0.5;
+    transition: opacity 0.12s ease-out;
+}
+
+#scanner-tab .module-content.loaded > .pagination-controls,
+#scanner-tab .module-content.loaded > .table-container,
+#scanner-tab .module-content.loaded > .empty-logs {
+    animation: sectionIn 0.2s ease-out backwards;
+}
+
+#scanner-tab .module-content.loaded > .table-container {
+    animation-delay: 0.02s;
+}
+
+#scanner-tab .module-content.loaded > .empty-logs {
+    animation-delay: 0.04s;
+}
+
+.tab-content.active {
+    animation: sectionIn 0.2s ease-out backwards;
+}
+
+/* A Settings section fades in; its toolbar and the tabs above do not. */
+.settings-section.loaded > :not(.settings-controls-bar) {
+    animation: sectionIn 0.2s ease-out backwards;
+}
+
+.settings-section.loaded > :nth-child(2) {
+    animation-delay: 0.02s;
+}
+
+.settings-section.loaded > :nth-child(3) {
+    animation-delay: 0.04s;
+}
+
+.settings-section.loaded > :nth-child(n+4) {
+    animation-delay: 0.06s;
+}
+
+/* --- Footer: equal circles, so icons centre and space evenly --- */
+.social-links {
+    gap: 6px;
+}
+
+.social-links a,
+.social-links .theme-toggle {
+    display: inline-grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    min-width: 0;
+    min-height: 0;
+    margin: 0;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    box-shadow: none;
+    font-size: 1em;
+    line-height: 1;
+    text-decoration: none;
+}
+
+.social-links a > i,
+.social-links a > svg,
+.social-links .theme-toggle > i,
+.social-links .theme-toggle > svg {
+    display: block;
+    margin: 0;
+}
+
+.social-links a:hover,
+.social-links .theme-toggle:hover:not(:disabled),
+.social-links .theme-toggle:active:not(:disabled) {
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+    filter: none;
+    transform: none;
+}
+
+/* --- Small but everywhere --- */
+/* UI text is not selectable; data and paragraphs stay selectable. */
+.logs-table th,
+.database-table th,
+.cat-label,
+.day-separator-date,
+.req-status-pill,
+.action-chip,
+.logs-count,
+.entry-count {
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.badge,
+.req-status-pill,
+.cat-label,
+.uid-badge,
+.time-tag,
+.day-separator-date,
+.action-chip span,
+.btn-text,
+.action-label {
+    white-space: nowrap;
+}
+
+/* --- Mobile (≤768px) --- */
+@media (max-width: 768px) {
+
+    /* Photo only, in an even ring; icon-only buttons are true circles. */
+    .top-bar-user > span:last-child {
+        display: none;
+    }
+
+    .top-bar-user .user-avatar {
+        width: 34px;
+        height: 34px;
+    }
+
+    button.top-bar-user {
+        padding: 2px;
+    }
+
+    .user-info .btn-text {
+        display: none;
+    }
+
+    #logout-btn,
+    #register-uid-btn,
+    #request-permission-btn {
+        width: 36px;
+        height: 36px;
+        padding: 0;
+        border-radius: 50%;
+        flex-shrink: 0;
+    }
+
+    #logout-btn > i,
+    #logout-btn > svg,
+    #register-uid-btn > i,
+    #register-uid-btn > svg,
+    #request-permission-btn > i,
+    #request-permission-btn > svg {
+        margin: 0 !important;
+    }
+
+    /* Panel actions move to their own line instead of crushing the title. */
+    .panel-header {
+        row-gap: 10px;
+    }
+
+    .panel-actions {
+        flex-basis: 100%;
+    }
+
+    /* Settings toolbar: the add button drops its label and becomes a circle. */
+    .settings-controls-bar {
+        padding: 12px 16px;
+    }
+
+    .settings-controls-bar .btn-text {
+        display: none;
+    }
+
+    #add-new-course-btn,
+    #add-staff-btn {
+        width: 36px;
+        height: 36px;
+        padding: 0;
+        border-radius: 50%;
+    }
+
+    .settings-scroll {
+        padding: 10px 16px 16px;
+    }
+
+    .settings-modal-header {
+        padding: 16px 16px 14px;
+    }
+
+    .settings-tabs-container {
+        gap: 2px;
+        padding: 6px 12px 0;
+        overflow-x: auto;
+        scrollbar-width: none;
+    }
+
+    .settings-tab-btn {
+        flex-shrink: 0;
+        padding: 10px 12px;
+        font-size: 0.9em;
+        white-space: nowrap;
+    }
+
+    /* In table and settings rows, Edit and the decisions drop their words. */
+    .actions-cell .row-edit-btn,
+    .settings-row .row-edit-btn,
+    .decision-btn {
+        width: 32px;
+        padding: 0;
+    }
+
+    .actions-cell .row-edit-btn span,
+    .settings-row .row-edit-btn span,
+    .decision-btn span {
+        display: none;
+    }
+
+    /* Dialogs become bottom sheets. */
+    .dialog-backdrop {
+        align-items: flex-end;
+        padding: 0;
+    }
+
+    .dialog {
+        width: 100%;
+        max-width: 100% !important;
+        max-height: 95vh;
+        margin: 0;
+        border-radius: 16px 16px 0 0;
+        animation-name: sheet-enter;
+    }
+
+    .dialog-actions {
+        padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+    }
+
+}
+
+/* --- Reduced motion: none of the new transitions or animations --- */
+@media (prefers-reduced-motion: reduce) {
+
+    .tab,
+    .tab-icon,
+    .course-button .course-button-icon,
+    .scope-switch::before,
+    .scope-switch button,
+    .row-edit-btn,
+    .row-menu-btn,
+    .quiet-btn,
+    .decision-btn,
+    .logs-actions > .btn-icon,
+    .database-actions > .btn-icon,
+    .bulk-actions-bar .bulk-actions-group > .btn-icon,
+    .settings-row,
+    .student-item,
+    .history-filter-bar::before,
+    button.top-bar-user,
+    #logout-btn,
+    #register-uid-btn,
+    #request-permission-btn,
+    #scanner-tab .table-container[inert],
+    #empty-logs[inert],
+    #logs-pagination[inert] {
+        transition: none !important;
+    }
+
+    .row-menu-list,
+    .dialog,
+    .dialog-backdrop,
+    .tab-content.active,
+    .settings-section.loaded > *,
+    #scanner-tab .module-content.loaded > * {
+        animation: none !important;
+    }
+}
+
+/* =========================================================================
+   Dialogs: one design language for every dialog
+   Light chrome, muted labels, white rounded fields, a neutral Cancel next to
+   one solid action, and tinted secondary buttons. Label and footer icons are
+   dropped (spinners stay); title icons stay, small and in the primary colour.
+   ========================================================================= */
+
+.dialog {
+    border-radius: 20px;
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    box-shadow: 0 24px 48px -12px rgba(15, 23, 42, 0.28);
+    font-size: 1rem;
+}
+
+.dialog-title,
+.settings-modal-header {
+    padding: 18px 22px;
+}
+
+.dialog-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 1.125rem;
+    font-weight: 700;
+    line-height: 1.3;
+    user-select: none;
+}
+
+.dialog-title > i,
+.dialog-title > svg {
+    flex-shrink: 0;
+    font-size: 0.9em;
+    color: var(--primary-color);
+}
+
+.dark-mode .dialog-title > i,
+.dark-mode .dialog-title > svg {
+    color: var(--primary-light);
+}
+
+.dialog-content {
+    padding: 20px 22px;
+}
+
+.dialog p {
+    font-size: 0.9375rem;
+}
+
+.dialog hr {
+    border: 0;
+    border-top: 1px solid rgba(0, 0, 0, 0.08);
+    margin: 14px 0;
+}
+
+.dark-mode .dialog hr {
+    border-top-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Labels: small, muted and uppercase, beside the field (above it on phones). */
+.dialog .form-group {
+    gap: 15px;
+    margin-bottom: 10px;
+}
+
+.dialog .dialog-label-fixed,
+.dialog .form-group > label:not(:has(input, select, textarea)) {
+    width: 100px;
+    min-width: 100px;
+    flex-shrink: 0;
+    margin-bottom: 0;
+    color: #78909c;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    line-height: 1.3;
+    text-transform: uppercase;
+    user-select: none;
+}
+
+.dialog .dialog-label-fixed > i,
+.dialog .dialog-label-fixed > svg,
+.dialog .form-group > label:not(:has(input, select, textarea)) > i:first-child,
+.dialog .form-group > label:not(:has(input, select, textarea)) > svg:first-child {
+    display: none;
+}
+
+/* A label that wraps a checkbox reads as body text. */
+.dialog .form-group > label:has(input) {
+    color: var(--text-color);
+    font-size: 0.9375rem;
+    font-weight: 500;
+}
+
+.dark-mode .dialog .dialog-label-fixed,
+.dark-mode .dialog .form-group > label:not(:has(input, select, textarea)) {
+    color: #90a4ae;
+}
+
+.dark-mode .dialog .form-group > label:has(input) {
+    color: var(--text-color);
+}
+
+/* Muted help text under a field, aligned with the fields. */
+.form-hint {
+    margin: -4px 0 12px 115px;
+    color: #78909c;
+    font-size: 0.8125rem;
+    line-height: 1.45;
+    opacity: 1;
+}
+
+.dialog p.form-hint {
+    margin-bottom: 12px;
+}
+
+.dark-mode .form-hint,
+.dark-mode .dialog p.form-hint {
+    color: #90a4ae;
+}
+
+.dialog .error-message {
+    padding-left: 115px;
+}
+
+/* Fields: white, a hairline border, rounded; focus is a soft primary shadow. */
+.dialog :is(.form-control, textarea, select, input[type="text"], input[type="email"], input[type="number"], input[type="date"], input[type="time"], input[type="datetime-local"], input[type="tel"], input[type="url"], input[type="password"], input[type="search"]):where(:not(.number-input-field, .stepper-input, .settings-search-input, .filter-input, .settings-sort-select, .sort-dropdown)) {
+    box-sizing: border-box;
+    min-height: 40px;
+    padding: 9px 12px;
+    border: 1px solid #dfe3ea;
+    border-radius: 12px;
+    background-color: var(--card-background);
+    color: var(--text-color);
+    font-family: inherit;
+    font-size: 0.9375rem;
+    line-height: 1.35;
+    box-shadow: none;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.dialog :is(.form-control, textarea, select, input[type="text"], input[type="email"], input[type="number"], input[type="date"], input[type="time"], input[type="datetime-local"], input[type="tel"], input[type="url"], input[type="password"], input[type="search"]):where(:not(.number-input-field, .stepper-input, .settings-search-input, .filter-input, .settings-sort-select, .sort-dropdown)):focus {
+    border-color: var(--primary-color);
+    background-color: var(--card-background);
+    box-shadow: 0 2px 8px rgba(57, 73, 171, 0.15);
+}
+
+.dark-mode .dialog :is(.form-control, textarea, select, input[type="text"], input[type="email"], input[type="number"], input[type="date"], input[type="time"], input[type="datetime-local"], input[type="tel"], input[type="url"], input[type="password"], input[type="search"]):where(:not(.number-input-field, .stepper-input, .settings-search-input, .filter-input, .settings-sort-select, .sort-dropdown)) {
+    border-color: rgba(255, 255, 255, 0.14);
+    background-color: rgba(255, 255, 255, 0.05);
+    color: #f0f0f0;
+}
+
+.dark-mode .dialog :is(.form-control, textarea, select, input[type="text"], input[type="email"], input[type="number"], input[type="date"], input[type="time"], input[type="datetime-local"], input[type="tel"], input[type="url"], input[type="password"], input[type="search"]):where(:not(.number-input-field, .stepper-input, .settings-search-input, .filter-input, .settings-sort-select, .sort-dropdown)):focus {
+    border-color: var(--primary-light);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
+.dialog textarea {
+    resize: vertical;
+}
+
+/* Read-only and disabled fields: a quiet grey fill, no border. */
+.dialog :is(.form-control, textarea, select, input):is(:disabled, [readonly]):where(:not([type="checkbox"], [type="radio"], [type="file"])) {
+    background-color: rgba(0, 0, 0, 0.035) !important;
+    border-color: transparent;
+    color: #607d8b;
+    opacity: 1;
+    cursor: default;
+    box-shadow: none;
+}
+
+.dark-mode .dialog :is(.form-control, textarea, select, input):is(:disabled, [readonly]):where(:not([type="checkbox"], [type="radio"], [type="file"])) {
+    background-color: rgba(255, 255, 255, 0.05) !important;
+    color: #9eaab3;
+}
+
+/* Icons inside fields go, except a search magnifier. */
+.dialog .input-with-icon > :is(i, svg):not(.fa-magnifying-glass) {
+    display: none;
+}
+
+.dialog .input-with-icon:not(:has(> .fa-magnifying-glass)) > input {
+    padding-left: 12px !important;
+}
+
+.dialog .admin-input-wrapper {
+    gap: 8px;
+}
+
+/* Footer: one solid action; Cancel, Close and Back are neutral outlines. */
+.dialog-actions {
+    align-items: center;
+    gap: 8px;
+    padding: 14px 22px;
+}
+
+.dialog-actions button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 38px;
+    padding: 0 18px;
+    border: 1px solid transparent;
+    border-radius: 19px;
+    background: var(--primary-color);
+    color: #fff;
+    font-family: inherit;
+    font-size: 0.9rem;
+    font-weight: 600;
+    line-height: 1.2;
+    box-shadow: none;
+    transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease, filter 0.15s ease, transform 0.12s ease;
+}
+
+/* Words carry the meaning; decorative icons go, a loading spinner stays. */
+.dialog-actions button > i:not(.fa-spin),
+.dialog-actions button > svg:not(.fa-spin) {
+    display: none;
+}
+
+.dialog-actions .btn-blue {
+    background: var(--primary-color);
+}
+
+.dialog-actions .btn-green {
+    background: #43a047;
+}
+
+.dialog-actions .btn-red {
+    background: #e53935;
+}
+
+.dialog-actions .btn-orange {
+    background: #fb8c00;
+}
+
+.dialog-actions button:hover:not(:disabled) {
+    border-color: transparent;
+    box-shadow: none;
+    filter: brightness(1.07);
+    font-weight: 600;
+}
+
+.dialog-actions .btn-blue:hover:not(:disabled) {
+    background: var(--primary-color);
+}
+
+.dialog-actions .btn-green:hover:not(:disabled) {
+    background: #43a047;
+}
+
+.dialog-actions .btn-red:hover:not(:disabled) {
+    background: #e53935;
+}
+
+.dialog-actions .btn-orange:hover:not(:disabled) {
+    background: #fb8c00;
+}
+
+.dialog-actions button:active:not(:disabled) {
+    transform: scale(0.97);
+    box-shadow: none;
+    filter: brightness(0.96);
+}
+
+.dialog-actions button:disabled {
+    opacity: 0.5;
+}
+
+.dialog-actions button:is([id*="cancel" i], [id*="close" i], [id*="back" i]),
+.dialog-actions button:is([id*="cancel" i], [id*="close" i], [id*="back" i]):hover:not(:disabled) {
+    background: transparent;
+    border-color: rgba(0, 0, 0, 0.16);
+    color: #455a64;
+    filter: none;
+}
+
+.dialog-actions button:is([id*="cancel" i], [id*="close" i], [id*="back" i]):hover:not(:disabled) {
+    background: rgba(0, 0, 0, 0.05);
+}
+
+.dark-mode .dialog-actions button:is([id*="cancel" i], [id*="close" i], [id*="back" i]),
+.dark-mode .dialog-actions button:is([id*="cancel" i], [id*="close" i], [id*="back" i]):hover:not(:disabled) {
+    border-color: rgba(255, 255, 255, 0.18);
+    color: #cfd8dc;
+}
+
+.dark-mode .dialog-actions button:is([id*="cancel" i], [id*="close" i], [id*="back" i]):hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.07);
+}
+
+/* The course editor's Delete stays a red tint at the start of the footer. */
+.dialog-actions .btn-red.tint-danger,
+.dialog-actions .btn-red.tint-danger:hover:not(:disabled) {
+    background: rgba(229, 57, 53, 0.08);
+    border-color: rgba(229, 57, 53, 0.35);
+    color: #c62828;
+    filter: none;
+}
+
+.dialog-actions .btn-red.tint-danger:hover:not(:disabled) {
+    background: rgba(229, 57, 53, 0.16);
+}
+
+.dark-mode .dialog-actions .btn-red.tint-danger,
+.dark-mode .dialog-actions .btn-red.tint-danger:hover:not(:disabled) {
+    background: rgba(239, 83, 80, 0.14);
+    border-color: rgba(239, 83, 80, 0.4);
+    color: #ef9a9a;
+}
+
+/* Secondary buttons inside a dialog: tinted outlines by meaning. */
+.dialog-content button:is(.btn-green, .btn-red, .btn-blue, .btn-orange, .btn-purple) {
+    border: 1px solid;
+    box-shadow: none;
+    font-family: inherit;
+    font-weight: 500;
+}
+
+.dialog-content button:is(.btn-green, .btn-red, .btn-blue, .btn-orange, .btn-purple):hover:not(:disabled),
+.dialog-content button:is(.btn-green, .btn-red, .btn-blue, .btn-orange, .btn-purple):active:not(:disabled) {
+    box-shadow: none;
+    filter: none;
+    font-weight: 500;
+}
+
+.dialog-content button.btn-blue {
+    background: rgba(57, 73, 171, 0.08);
+    border-color: rgba(57, 73, 171, 0.35);
+    color: var(--primary-color);
+}
+
+.dialog-content button.btn-blue:hover:not(:disabled) {
+    background: rgba(57, 73, 171, 0.16);
+    border-color: rgba(57, 73, 171, 0.45);
+}
+
+.dialog-content button.btn-green {
+    background: rgba(67, 160, 71, 0.08);
+    border-color: rgba(67, 160, 71, 0.4);
+    color: #2e7d32;
+}
+
+.dialog-content button.btn-green:hover:not(:disabled) {
+    background: rgba(67, 160, 71, 0.16);
+    border-color: rgba(67, 160, 71, 0.5);
+}
+
+.dialog-content button.btn-red {
+    background: rgba(229, 57, 53, 0.08);
+    border-color: rgba(229, 57, 53, 0.35);
+    color: #c62828;
+}
+
+.dialog-content button.btn-red:hover:not(:disabled) {
+    background: rgba(229, 57, 53, 0.16);
+    border-color: rgba(229, 57, 53, 0.45);
+}
+
+.dialog-content button.btn-orange {
+    background: rgba(251, 140, 0, 0.08);
+    border-color: rgba(251, 140, 0, 0.35);
+    color: #e65100;
+}
+
+.dialog-content button.btn-orange:hover:not(:disabled) {
+    background: rgba(251, 140, 0, 0.16);
+    border-color: rgba(251, 140, 0, 0.45);
+}
+
+.dialog-content button.btn-purple {
+    background: rgba(156, 39, 176, 0.08);
+    border-color: rgba(156, 39, 176, 0.35);
+    color: #7b1fa2;
+}
+
+.dialog-content button.btn-purple:hover:not(:disabled) {
+    background: rgba(156, 39, 176, 0.16);
+}
+
+.dark-mode .dialog-content button.btn-blue {
+    background: rgba(121, 134, 203, 0.14);
+    border-color: rgba(121, 134, 203, 0.4);
+    color: #c5cae9;
+}
+
+.dark-mode .dialog-content button.btn-green {
+    background: rgba(102, 187, 106, 0.14);
+    border-color: rgba(102, 187, 106, 0.4);
+    color: #a5d6a7;
+}
+
+.dark-mode .dialog-content button.btn-red {
+    background: rgba(239, 83, 80, 0.14);
+    border-color: rgba(239, 83, 80, 0.4);
+    color: #ef9a9a;
+}
+
+.dark-mode .dialog-content button.btn-orange {
+    background: rgba(255, 183, 77, 0.14);
+    border-color: rgba(255, 183, 77, 0.4);
+    color: #ffcc80;
+}
+
+.dark-mode .dialog-content button.btn-purple {
+    background: rgba(186, 104, 200, 0.14);
+    border-color: rgba(186, 104, 200, 0.4);
+    color: #e1bee7;
+}
+
+.dark-mode .dialog-content button:is(.btn-green, .btn-red, .btn-blue, .btn-orange, .btn-purple):hover:not(:disabled) {
+    filter: brightness(1.15);
+}
+
+/* Option chips (hours, reasons): hairline boxes; the chosen one is tinted. */
+.dialog .toggle-button {
+    border: 1px solid #dfe3ea;
+    border-radius: 10px !important;
+    background-color: var(--card-background) !important;
+    color: #455a64;
+    font-family: inherit;
+    box-shadow: none;
+    transform: none;
+    transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+}
+
+.dialog .toggle-button:hover:not(.active):not(:disabled) {
+    background-color: rgba(57, 73, 171, 0.05) !important;
+    border-color: rgba(57, 73, 171, 0.35);
+    color: var(--primary-color);
+    box-shadow: none;
+}
+
+.dialog .toggle-button.active,
+.dialog .toggle-button.active:hover,
+.dialog .toggle-button:active:not(:disabled) {
+    background-color: rgba(57, 73, 171, 0.1) !important;
+    border-color: var(--primary-color);
+    color: var(--primary-color) !important;
+    font-weight: 600;
+    box-shadow: none;
+    transform: none !important;
+    filter: none;
+}
+
+.dark-mode .dialog .toggle-button {
+    background-color: rgba(255, 255, 255, 0.04) !important;
+    border-color: rgba(255, 255, 255, 0.14);
+    color: #cfd8dc;
+}
+
+.dark-mode .dialog .toggle-button:hover:not(.active):not(:disabled) {
+    background-color: rgba(121, 134, 203, 0.12) !important;
+    border-color: rgba(121, 134, 203, 0.4);
+    color: #c5cae9;
+}
+
+.dark-mode .dialog .toggle-button.active,
+.dark-mode .dialog .toggle-button.active:hover {
+    background-color: rgba(121, 134, 203, 0.24) !important;
+    border-color: var(--primary-light);
+    color: #e8eaf6 !important;
+}
+
+.dialog .reason-card {
+    border-radius: 10px;
+    border-color: #dfe3ea;
+    transform: none;
+    box-shadow: none;
+}
+
+.dialog .reason-card.active,
+.dialog .reason-card:active {
+    background-color: rgba(57, 73, 171, 0.1);
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+    box-shadow: none;
+    transform: none;
+}
+
+.dark-mode .dialog .reason-card {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(255, 255, 255, 0.14);
+}
+
+.dark-mode .dialog .reason-card.active {
+    background-color: rgba(121, 134, 203, 0.24);
+    border-color: var(--primary-light);
+    color: #e8eaf6;
+}
+
+/* Notices inside dialogs. */
+.dialog-disclaimer {
+    border: 1px solid rgba(251, 140, 0, 0.28);
+    border-left-width: 3px;
+    border-radius: 10px;
+    background-color: rgba(251, 140, 0, 0.07);
+}
+
+.dark-mode .dialog-disclaimer {
+    border-color: rgba(255, 183, 77, 0.3);
+    background-color: rgba(255, 183, 77, 0.08);
+}
+
+/* A person's role repeats under their name only on phones (see the phone rules). */
+.settings-row-role {
+    display: none;
+}
+
+/* The verification answers read as option chips. */
+.dialog #captcha-choices > .course-button {
+    border: 1px solid #dfe3ea;
+    border-radius: 10px;
+    box-shadow: none;
+    font-family: inherit;
+}
+
+.dialog #captcha-choices > .course-button:hover {
+    border-color: rgba(57, 73, 171, 0.35);
+    background-color: rgba(57, 73, 171, 0.05);
+}
+
+.dialog #captcha-choices > .course-button.active {
+    border-color: var(--primary-color);
+    background-color: rgba(57, 73, 171, 0.1);
+    box-shadow: none;
+    transform: none;
+}
+
+.dark-mode .dialog #captcha-choices > .course-button {
+    border-color: rgba(255, 255, 255, 0.14);
+}
+
+.student-item-check {
+    flex-shrink: 0;
+    color: var(--primary-color);
+}
+
+.dark-mode .student-item-check {
+    color: var(--primary-light);
+}
+
+/* --- Settings dialogs: UI text is not selectable; e-mails, IDs and fields are. --- */
+.settings-dialog {
+    -webkit-user-select: none;
+    user-select: none;
+    cursor: default;
+}
+
+.settings-dialog input,
+.settings-dialog textarea,
+.settings-dialog .selectable {
+    -webkit-user-select: text;
+    user-select: text;
+}
+
+.settings-dialog .selectable {
+    cursor: text;
+}
+
+.settings-dialog .settings-controls-bar {
+    gap: 10px;
+    padding: 14px 22px;
+}
+
+.settings-dialog .search > i,
+.settings-dialog .search > svg {
+    left: 14px;
+    font-size: 0.85rem;
+}
+
+.settings-dialog .search input {
+    padding: 10px 14px 10px 36px !important;
+    font-size: 0.9375rem;
+}
+
+.settings-dialog .settings-sort-select {
+    height: 42px;
+    padding: 0 12px;
+    font-size: 0.875rem;
+}
+
+.settings-dialog .settings-controls-bar > button {
+    height: 42px;
+    padding: 0 16px;
+    border-radius: 21px;
+    font-size: 0.875rem;
+}
+
+.settings-dialog .settings-scroll {
+    padding: 14px 22px 22px;
+}
+
+.settings-dialog .settings-row .row-edit-btn,
+.settings-dialog .settings-row .row-menu-btn {
+    height: 34px;
+    font-size: 0.8125rem;
+}
+
+.settings-dialog .settings-row .row-menu-btn {
+    width: 34px;
+}
+
+.settings-dialog .settings-modal-heading h3 {
+    font-size: 1.25rem;
+}
+
+.settings-dialog .settings-modal-sub {
+    font-size: 0.875rem;
+}
+
+.settings-dialog .settings-tab-btn {
+    font-size: 0.9375rem;
+}
+
+.settings-dialog .settings-device-id strong {
+    font-size: 0.9375rem;
+}
+
+.settings-dialog .settings-device-id small {
+    font-size: 0.8125rem;
+}
+
+/* A small field label used outside a form row (for example above session choices). */
+.inline-field-label {
+    display: block;
+    margin-bottom: 6px;
+    color: #78909c;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    user-select: none;
+}
+
+.dark-mode .inline-field-label {
+    color: #90a4ae;
+}
+
+/* Adjacent buttons inside a dialog read as one segmented control. */
+.dialog-button-group {
+    display: inline-flex;
+    gap: 2px;
+}
+
+.dialog-button-group > button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border-radius: 8px;
+    transition: border-radius 0.25s cubic-bezier(.4, 0, .2, 1), background-color 0.18s ease;
+}
+
+.dialog-button-group > button:first-child {
+    border-radius: 18px 8px 8px 18px;
+}
+
+.dialog-button-group > button:last-child {
+    border-radius: 8px 18px 18px 8px;
+}
+
+.dialog-button-group > button:only-child,
+.dialog-button-group > button:hover:not(:disabled) {
+    border-radius: 18px;
+}
+
+/* --- Toolbar ⋯ menus (Delete all logs / students) --- */
+body.is-admin .toolbar-menu.admin-only {
+    display: inline-flex !important;
+}
+
+.logs-actions > .row-menu > .row-menu-btn,
+.database-actions > .row-menu > .row-menu-btn {
+    width: 32px;
+    height: 32px;
+    border-color: rgba(0, 0, 0, 0.14);
+    border-radius: 6px 16px 16px 6px;
+    background: rgba(0, 0, 0, 0.03);
+    color: #455a64;
+}
+
+.logs-actions > .row-menu > .row-menu-btn:hover:not(:disabled),
+.database-actions > .row-menu > .row-menu-btn:hover:not(:disabled),
+.logs-actions > .row-menu > .row-menu-btn[aria-expanded="true"],
+.database-actions > .row-menu > .row-menu-btn[aria-expanded="true"] {
+    border-radius: 16px;
+    background: rgba(57, 73, 171, 0.08);
+    border-color: rgba(57, 73, 171, 0.3);
+    color: var(--primary-color);
+}
+
+.dark-mode .logs-actions > .row-menu > .row-menu-btn,
+.dark-mode .database-actions > .row-menu > .row-menu-btn {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.16);
+    color: #cfd8dc;
+}
+
+.dark-mode .logs-actions > .row-menu > .row-menu-btn:hover:not(:disabled),
+.dark-mode .database-actions > .row-menu > .row-menu-btn:hover:not(:disabled),
+.dark-mode .logs-actions > .row-menu > .row-menu-btn[aria-expanded="true"],
+.dark-mode .database-actions > .row-menu > .row-menu-btn[aria-expanded="true"] {
+    background: rgba(121, 134, 203, 0.16);
+    border-color: rgba(121, 134, 203, 0.4);
+    color: #c5cae9;
+}
+
+.row-menu-list button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+/* --- Dialogs on phones: labels sit above their fields --- */
+@media (max-width: 560px) {
+    .dialog .form-group {
+        flex-direction: column;
+        align-items: stretch !important;
+        gap: 6px;
+    }
+
+    .dialog .form-group.uid-edit-row {
+        flex-direction: row;
+        flex-wrap: wrap;
+        align-items: center !important;
+    }
+
+    .dialog .form-group.uid-edit-row > .dialog-label-fixed {
+        flex-basis: 100%;
+    }
+
+    .dialog .dialog-label-fixed,
+    .dialog .form-group > label:not(:has(input, select, textarea)) {
+        width: auto;
+        min-width: 0;
+        margin-top: 0 !important;
+    }
+
+    .form-hint,
+    .dialog .error-message {
+        margin-left: 0;
+        padding-left: 0;
+    }
+
+    .dialog .student-list-container,
+    .dialog [style*="margin-left:115px"],
+    .dialog [style*="margin-left: 115px"] {
+        margin-left: 0 !important;
+    }
+
+    .dialog-title,
+    .settings-modal-header {
+        padding: 16px 18px;
+    }
+
+    .dialog-content {
+        padding: 16px 18px;
+    }
+
+    .dialog-actions {
+        padding: 12px 18px calc(14px + env(safe-area-inset-bottom, 0px));
+    }
+
+    .settings-dialog .settings-controls-bar {
+        padding: 12px 16px;
+    }
+
+    .settings-dialog .settings-scroll {
+        padding: 10px 16px 16px;
+    }
+
+    /* Settings rows: one-line names ending in "…"; a person's role moves under the name. */
+    .settings-dialog .settings-row-title {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        overflow-wrap: normal;
+    }
+
+    .settings-row.is-person .settings-row-meta {
+        display: none;
+    }
+
+    .settings-row.is-person .settings-row-role {
+        display: inline;
+    }
+
+    /* Reason cards: two per row, so words never break mid-way. */
+    .dialog .reason-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .dialog .reason-card span {
+        word-break: normal;
+        overflow-wrap: break-word;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dialog-actions button,
+    .dialog .toggle-button,
+    .dialog :is(.form-control, textarea, select, input) {
+        transition: none !important;
+    }
+}
+
 /* Keep keyboard navigation visible in either theme. */
 :where(button, a, input, select, textarea, [tabindex]):focus-visible {
     outline: 3px solid var(--primary-color, #0053a1);

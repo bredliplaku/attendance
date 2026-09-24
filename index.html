@@ -101,26 +101,25 @@
                 </div>
             </div>
             <div class="auth-container">
-                <div id="login-container">
-                    <button id="login-btn" class="btn-blue">
-                        <i class="fa-brands fa-google"></i> Sign in
-                    </button>
-                </div>
                 <div id="user-container" style="display: none">
                     <div class="user-info">
-                        <button id="request-permission-btn" class="btn-sm btn-orange" title="Request for Permission"
-                            style="display: none;">
-                            <i class="fa-solid fa-hand-point-up"></i>
-                            <span class="btn-text"> Request for Permission</span>
+                        <button type="button" id="request-permission-btn" class="btn-sm btn-orange"
+                            title="Request for Permission" aria-label="Request for Permission" style="display: none;">
+                            <i class="fa-solid fa-hand-point-up" aria-hidden="true"></i><span class="btn-text">Request
+                                for Permission</span>
                         </button>
-                        <button id="register-uid-btn" class="btn-sm" title="Register your card">
-                            <i class="fa-solid fa-address-card"></i>
-                            <span class="btn-text"> Register Card ID</span>
+                        <button type="button" id="register-uid-btn" class="btn-sm" title="Register your card"
+                            aria-label="Register your card">
+                            <i class="fa-solid fa-address-card" aria-hidden="true"></i><span class="btn-text">Register
+                                Card ID</span>
                         </button>
-                        <img id="user-avatar" class="user-avatar" src="" alt="User Avatar" referrerpolicy="no-referrer">
-                        <span id="user-name"></span>
-                        <button id="logout-btn" class="btn-red btn-icon" title="Sign Out">
-                            <i class="fa-solid fa-right-from-bracket"></i>
+                        <!-- The photo and name open Settings (administrators) or the profile. -->
+                        <button type="button" id="student-profile-chip" class="top-bar-user" title="Profile"
+                            aria-label="Open profile"><span id="user-avatar" class="user-avatar"
+                                aria-hidden="true"></span><span id="user-name"></span></button>
+                        <button type="button" id="logout-btn" class="btn-red" title="Sign out" aria-label="Sign out">
+                            <i class="fa-solid fa-right-from-bracket" aria-hidden="true"></i><span
+                                class="btn-text">Sign out</span>
                         </button>
                     </div>
                 </div>
@@ -137,13 +136,37 @@
                 <span class="info-item"><i class="fa-solid fa-clock"></i> Last scan: <span
                         id="last-scan">Never</span></span>
             </div>
-            <div class="tabs" style="display: none;">
-                <div class="tab active" data-tab="scanner-tab">
-                    <i class="fa-solid fa-list-check"></i>&nbsp; Courses
-                </div>
-                <div class="tab" data-tab="database-tab">
-                    <i class="fa-solid fa-list-ol"></i>&nbsp; Student List
-                </div>
+            <!-- Signed out: the header itself holds the sign-in. -->
+            <div class="app-info signin-chips">
+                <span class="info-item"><i class="fa-solid fa-lock" aria-hidden="true"></i> Sign-in required</span>
+                <span class="info-item"><i class="fa-solid fa-envelope" aria-hidden="true"></i> EPOKA Mail</span>
+            </div>
+            <div id="login-container">
+                <button type="button" id="login-btn" class="btn-google">
+                    <svg class="google-icon" viewBox="0 0 18 18" aria-hidden="true">
+                        <path
+                            d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z"
+                            fill="#4285F4" />
+                        <path
+                            d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"
+                            fill="#34A853" />
+                        <path
+                            d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z"
+                            fill="#FBBC05" />
+                        <path
+                            d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z"
+                            fill="#EA4335" />
+                    </svg>
+                    Sign in with Google
+                </button>
+            </div>
+            <div class="tabs" role="tablist" style="display: none;">
+                <div class="tab active" data-tab="scanner-tab" role="tab" tabindex="0" aria-selected="true"><i
+                        class="fa-solid fa-list-check tab-icon" aria-hidden="true"></i><span class="tab-label"
+                        data-label="Courses">Courses</span></div>
+                <div class="tab" data-tab="database-tab" role="tab" tabindex="0" aria-selected="false"><i
+                        class="fa-solid fa-list-ol tab-icon" aria-hidden="true"></i><span class="tab-label"
+                        data-label="Student List">Student List</span></div>
             </div>
         </div>
 
@@ -155,17 +178,18 @@
 
             <div id="pending-absences-view" class="collapsible-module">
                 <div class="module-content">
-                    <div
-                        style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:2px solid #f0f0f0; padding-bottom:8px;">
-                        <div style="font-weight:700; color:var(--warning-color);"><i
-                                class="fa-solid fa-hand-point-up"></i> Absences</div>
-                        <div style="display:flex; gap:6px;">
-                            <button id="absence-filter-btn" class="btn-sm btn-blue" title="Showing my courses only"
-                                style="display:none;" onclick="toggleAbsenceFilter()">
-                                <i class="fa-solid fa-filter"></i> My courses
-                            </button>
-                            <button id="absence-history-btn" class="btn-sm btn-blue" title="View All History">
-                                <i class="fa-solid fa-clock-rotate-left"></i> History
+                    <div class="panel-header">
+                        <div class="panel-title"><i class="fa-solid fa-hand-point-up" aria-hidden="true"></i> Absences
+                        </div>
+                        <div class="panel-actions">
+                            <!-- Choosing the other option calls toggleAbsenceFilter(). -->
+                            <div id="absence-filter-btn" class="scope-switch" role="group" aria-label="Requests shown"
+                                data-active="mine" style="display:none;">
+                                <button type="button" data-scope="mine" aria-pressed="true">My courses</button>
+                                <button type="button" data-scope="all" aria-pressed="false">All courses</button>
+                            </div>
+                            <button type="button" id="absence-history-btn" class="quiet-btn" title="View all history">
+                                <i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i><span>History</span>
                             </button>
                         </div>
                     </div>
@@ -190,11 +214,9 @@
 
             <div id="pending-registrations-view" class="collapsible-module">
                 <div class="module-content">
-                    <div
-                        style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:2px solid #f0f0f0; padding-bottom:8px;">
-                        <div style="font-weight:700; color:var(--warning-color);"><i
-                                class="fa-solid fa-address-card"></i>
-                            New Registrations</div>
+                    <div class="panel-header">
+                        <div class="panel-title"><i class="fa-solid fa-address-card" aria-hidden="true"></i> New
+                            Registrations</div>
                     </div>
 
                     <div class="table-container">
@@ -246,8 +268,11 @@
                 </div>
                 <div class="module-content">
                     <div class="filter-container">
-                        <input type="search" id="filter-input" class="filter-input"
-                            placeholder="Search name, card, date or session..." aria-label="Search attendance logs">
+                        <div class="search filter-search">
+                            <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+                            <input type="search" id="filter-input" class="filter-input"
+                                placeholder="Search name, card, date or session..." aria-label="Search attendance logs">
+                        </div>
                         <select id="sort-select" class="sort-dropdown" aria-label="Sort attendance logs">
                             <option value="date-desc"> Date (Newest)</option>
                             <option value="date-asc"> Date (Oldest)</option>
@@ -275,10 +300,15 @@
                             <button type="button" id="add-log-btn" class="btn-green btn-icon admin-only"
                                 style="display: none;" title="Add log" aria-label="Add log"><i class="fa-solid fa-plus"
                                     aria-hidden="true"></i><span class="action-label">Add</span></button>
-                            <button type="button" id="clear-btn" class="btn-red btn-icon admin-only"
-                                style="display: none;" disabled title="Delete all logs" aria-label="Delete all logs"><i
-                                    class="fa-solid fa-trash" aria-hidden="true"></i><span class="action-label">Delete
-                                    All</span></button>
+                            <div class="row-menu toolbar-menu admin-only">
+                                <button type="button" class="row-menu-btn" aria-haspopup="menu" aria-expanded="false"
+                                    aria-label="More log actions" title="More actions"><i class="fa-solid fa-ellipsis"
+                                        aria-hidden="true"></i></button>
+                                <div class="row-menu-list" role="menu" hidden>
+                                    <button type="button" role="menuitem" id="clear-btn" class="is-danger" disabled><i
+                                            class="fa-solid fa-trash" aria-hidden="true"></i>Delete all logs</button>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
@@ -346,8 +376,11 @@
                 </div>
                 <div class="module-content">
                     <div class="filter-container">
-                        <input type="search" id="db-filter-input" class="filter-input" placeholder="Search students..."
-                            aria-label="Search students">
+                        <div class="search filter-search">
+                            <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+                            <input type="search" id="db-filter-input" class="filter-input"
+                                placeholder="Search students..." aria-label="Search students">
+                        </div>
                         <select id="db-sort-select" class="sort-dropdown" aria-label="Sort students">
                             <option value="name-asc"> Name (A-Z)</option>
                             <option value="name-desc"> Name (Z-A)</option>
@@ -375,10 +408,15 @@
                                 style="display: none;" title="Add student" aria-label="Add student"><i
                                     class="fa-solid fa-plus" aria-hidden="true"></i><span
                                     class="action-label">Add</span></button>
-                            <button type="button" id="clear-db-btn" class="btn-red btn-icon admin-only"
-                                style="display: none;" title="Delete all students" aria-label="Delete all students"><i
-                                    class="fa-solid fa-trash" aria-hidden="true"></i><span class="action-label">Delete
-                                    All</span></button>
+                            <div class="row-menu toolbar-menu admin-only">
+                                <button type="button" class="row-menu-btn" aria-haspopup="menu" aria-expanded="false"
+                                    aria-label="More student list actions" title="More actions"><i
+                                        class="fa-solid fa-ellipsis" aria-hidden="true"></i></button>
+                                <div class="row-menu-list" role="menu" hidden>
+                                    <button type="button" role="menuitem" id="clear-db-btn" class="is-danger"><i
+                                            class="fa-solid fa-trash" aria-hidden="true"></i>Delete all students</button>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
@@ -436,14 +474,13 @@
                 style="width: 50px; margin-top: 0; margin-bottom: 20px; display: block; margin-left: auto; margin-right: auto;">
 
             <div class="social-links">
-                <a href="https://bredliplaku.com/" target="_blank" rel="noopener noreferrer"><i
-                        class="fa-solid fa-house-chimney-user"></i></a>
-                <a href="mailto:bplaku@epoka.edu.al" target="_blank" rel="noopener noreferrer"><i
-                        class="fa-solid fa-envelope"></i></a>
-                <button id="theme-toggle-btn" class="theme-toggle" title="Toggle Theme"><i
-                        class="fa-solid fa-circle-half-stroke"></i></button>
-                <button id="sound-toggle-btn" class="theme-toggle" title="Mute scan sounds" aria-label="Scan sounds"
-                    aria-pressed="true"><i class="fa-solid fa-volume-high"></i></button>
+                <!-- The root of whichever website hosts this page. -->
+                <a href="/" title="Home" aria-label="Home"><i class="fa-solid fa-house" aria-hidden="true"></i></a>
+                <button type="button" id="theme-toggle-btn" class="theme-toggle" title="Toggle Theme"><i
+                        class="fa-solid fa-circle-half-stroke" aria-hidden="true"></i></button>
+                <button type="button" id="sound-toggle-btn" class="theme-toggle" title="Mute scan sounds"
+                    aria-label="Scan sounds" aria-pressed="true"><i class="fa-solid fa-volume-high"
+                        aria-hidden="true"></i></button>
             </div>
             <p style="font-size:0.7em"><i class="fa-regular fa-copyright"></i> 2023-<span id="currentYear"></span>
                 Bredli Plaku. All Rights Reserved.</p>
@@ -457,12 +494,14 @@
             <span class="bulk-count-badge" id="bulk-count">0</span> selected
         </div>
         <div class="bulk-actions-group">
-            <button onclick="performBulkAction('add1h')" class="btn-green btn-icon" title="Add +1 Hour"><i
-                    class="fa-solid fa-plus"></i></button>
-            <button onclick="performBulkAction('sub1h')" class="btn-orange btn-icon" title="Remove -1 Hour"><i
-                    class="fa-solid fa-minus"></i></button>
-            <button onclick="performBulkAction('delete')" class="btn-red btn-icon" title="Delete Selected"><i
-                    class="fa-solid fa-trash"></i></button>
+            <button type="button" onclick="performBulkAction('add1h')" class="btn-green btn-icon bulk-add"
+                title="Add +1 Hour" aria-label="Add one hour"><i class="fa-solid fa-plus" aria-hidden="true"></i></button>
+            <button type="button" onclick="performBulkAction('sub1h')" class="btn-orange btn-icon bulk-remove"
+                title="Remove -1 Hour" aria-label="Remove one hour"><i class="fa-solid fa-minus"
+                    aria-hidden="true"></i></button>
+            <button type="button" onclick="performBulkAction('delete')" class="btn-red btn-icon bulk-delete"
+                title="Delete Selected" aria-label="Delete selected"><i class="fa-solid fa-trash"
+                    aria-hidden="true"></i></button>
         </div>
     </div>
 
