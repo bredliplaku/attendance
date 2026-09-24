@@ -154,12 +154,24 @@
                 <span class="info-item"><i class="fa-solid fa-clock"></i> Last scan: <span
                         id="last-scan">Never</span></span>
             </div>
-            <!-- Signed out: the header itself holds the sign-in. -->
-            <div class="app-info signin-chips">
-                <span class="info-item"><i class="fa-solid fa-lock" aria-hidden="true"></i> Sign-in required</span>
-                <span class="info-item"><i class="fa-solid fa-envelope" aria-hidden="true"></i> EPOKA Mail</span>
+            <div class="tabs" role="tablist" style="display: none;">
+                <div class="tab active" data-tab="scanner-tab" role="tab" tabindex="0" aria-selected="true"><i
+                        class="fa-solid fa-list-check tab-icon" aria-hidden="true"></i><span class="tab-label"
+                        data-label="Courses">Courses</span></div>
+                <div class="tab" data-tab="database-tab" role="tab" tabindex="0" aria-selected="false"><i
+                        class="fa-solid fa-list-ol tab-icon" aria-hidden="true"></i><span class="tab-label"
+                        data-label="Student List">Student List</span></div>
             </div>
-            <div id="login-container">
+        </div>
+
+        <!-- Signed out: a centred sign-in card stands in for the header banner. -->
+        <div id="login-container" class="signin-screen">
+            <section class="signin-card" aria-labelledby="login-title">
+                <h2>Welcome to Stando</h2>
+                <h1 id="login-title"><span class="stando-initial">S</span>mart <span
+                        class="stando-initial">T</span>ap <span class="stando-initial">A</span>ttendance <span
+                        class="stando-initial">N</span>etwork &amp; <span class="stando-initial">D</span>ata <span
+                        class="stando-initial">O</span>rganiser</h1>
                 <button type="button" id="login-btn" class="btn-google">
                     <svg class="google-icon" viewBox="0 0 18 18" aria-hidden="true">
                         <path
@@ -175,17 +187,12 @@
                             d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z"
                             fill="#EA4335" />
                     </svg>
-                    Sign in with Google
+                    Sign in
                 </button>
-            </div>
-            <div class="tabs" role="tablist" style="display: none;">
-                <div class="tab active" data-tab="scanner-tab" role="tab" tabindex="0" aria-selected="true"><i
-                        class="fa-solid fa-list-check tab-icon" aria-hidden="true"></i><span class="tab-label"
-                        data-label="Courses">Courses</span></div>
-                <div class="tab" data-tab="database-tab" role="tab" tabindex="0" aria-selected="false"><i
-                        class="fa-solid fa-list-ol tab-icon" aria-hidden="true"></i><span class="tab-label"
-                        data-label="Student List">Student List</span></div>
-            </div>
+                <!-- The fixed break keeps the text block as wide as its longest line, so the icon sits beside it. -->
+                <p class="signin-note"><i class="fa-solid fa-circle-info" aria-hidden="true"></i><span>Please sign in
+                        with your <strong>EPOKA Mail</strong><br>to track your attendance.</span></p>
+            </section>
         </div>
 
         <div id="admin-dashboard-bar" class="admin-action-bar admin-only" style="display:none;">

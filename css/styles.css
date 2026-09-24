@@ -5367,7 +5367,7 @@
 
 
             /* Hide Desktop-focused elements */
-            .app-header .app-info:not(.signin-chips) .info-item:nth-child(2) {
+            .app-header .app-info .info-item:nth-child(2) {
                 display: none !important;
             }
 
@@ -6209,74 +6209,206 @@ button.top-bar-user:focus-visible {
     background: rgba(255, 183, 77, 0.24);
 }
 
-/* Signed out, the top bar is empty: the header banner carries the sign-in. */
+/* Signed out, the top bar and header banner give way to the sign-in card. */
 body.signed-out .sync-auth-container {
     display: none;
 }
 
-/* --- Signed out: the header banner with the Google button inside it --- */
-.app-header .signin-chips {
-    display: none;
-}
-
-body.signed-out .app-header .app-info.signin-chips {
+/* --- Signed out: a white card centred on the grey page, above the footer --- */
+body.signed-out #main-container {
     display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    min-height: 100dvh;
+    padding: 0;
 }
 
-#login-container {
-    margin-top: 18px;
+/* 1rem ignores any inherited size, so the card is identical on every screen. */
+#login-container.signin-screen {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 16px;
+    font-size: 1rem;
 }
 
-.app-header .btn-google {
-    display: inline-flex;
+.signin-card {
+    width: 100%;
+    max-width: 440px;
+    box-sizing: border-box;
+    padding: 30px 28px 18px;
+    border-radius: 16px;
+    background: var(--card-background);
+    color: var(--text-color);
+    text-align: center;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    user-select: none;
+}
+
+/* The global h1 is a flex row (each initial would become its own item) and the
+   mobile header rules shrink headings; !important keeps the card's proportions. */
+.signin-card h2 {
+    margin: 0 0 6px;
+    color: var(--primary-color);
+    font-weight: 500;
+    font-size: 1em !important;
+}
+
+.signin-card h1 {
+    display: block;
+    margin: 0 0 24px;
+    color: var(--text-color);
+    font-weight: 700;
+    font-size: 1.6em !important;
+    line-height: 1.25;
+    text-wrap: balance;
+}
+
+.stando-initial {
+    color: var(--primary-color);
+}
+
+.signin-card .btn-google {
+    display: flex;
     align-items: center;
     justify-content: center;
     gap: 10px;
-    min-height: 44px;
-    padding: 10px 22px;
+    width: 100%;
+    max-width: 300px;
+    min-height: 52px;
+    box-sizing: border-box;
+    margin: 0 auto;
+    padding: 8px;
     border: 1.5px solid transparent;
-    border-radius: 22px;
-    background: #fff;
-    color: #3c4043;
+    border-radius: 26px;
+    background: var(--primary-color);
+    color: #fff;
     font-family: inherit;
     font-size: 0.95em;
     font-weight: 500;
-    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
 }
 
-.app-header .btn-google:hover:not(:disabled) {
-    background: #fff;
-    color: #3c4043;
+.signin-card .btn-google:hover:not(:disabled) {
+    background: var(--primary-dark);
     border-color: transparent;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    box-shadow: 0 3px 10px rgba(26, 35, 126, 0.3);
+    font-variation-settings: inherit;
     filter: none;
-    font-weight: 500;
 }
 
-.app-header .btn-google:active:not(:disabled) {
+.signin-card .btn-google:active:not(:disabled) {
     transform: scale(0.97);
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
     filter: none;
 }
 
-.app-header .btn-google:disabled {
+.signin-card .btn-google:disabled {
     opacity: 0.85;
     cursor: wait;
 }
 
-.app-header .btn-google:focus-visible {
-    outline: 2px solid #fff;
+.signin-card .btn-google:focus-visible {
+    outline: 2px solid var(--primary-color);
     outline-offset: 3px;
 }
 
-.google-icon {
-    width: 18px;
-    height: 18px;
+/* Google's colours need a white ground; on the blue they'd clash. */
+.signin-card .google-icon {
+    width: 36px;
+    height: 36px;
+    box-sizing: border-box;
+    flex-shrink: 0;
+    margin-right: auto;
+    padding: 8px;
+    border-radius: 50%;
+    background: #fff;
+}
+
+/* Balances the icon disc so the label stays centred; the "Verifying..." state has no disc. */
+.signin-card .btn-google::after {
+    content: "";
+    flex-shrink: 0;
+    width: 36px;
+    margin-left: auto;
+}
+
+.signin-card .btn-google:disabled::after {
+    display: none;
+}
+
+/* A flex gap, not a margin on the <i>: the Font Awesome kit swaps it for an <svg>. */
+.signin-note {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin: 26px -28px 0;
+    padding: 16px 28px 0;
+    border-top: 1px solid rgba(0, 0, 0, 0.08);
+    color: #757575;
+    font-size: 0.8em;
+    text-align: center;
+}
+
+.signin-note > i,
+.signin-note > svg {
     flex-shrink: 0;
 }
 
+.signin-note > span {
+    text-align: left;
+}
+
+.signin-note strong {
+    color: inherit;
+}
+
+.dark-mode .signin-card {
+    background: #121212;
+    border: 1px solid #333;
+}
+
+.dark-mode .signin-card h2,
+.dark-mode .stando-initial {
+    color: #9fa8da;
+}
+
+.dark-mode .signin-card h1 {
+    color: #e0e0e0;
+}
+
+/* Dark mode lightens --primary-color; the button keeps the light-mode indigo. */
+.dark-mode .signin-card .btn-google {
+    background: #3949ab;
+}
+
+.dark-mode .signin-card .btn-google:hover:not(:disabled) {
+    background: #5c6bc0;
+    box-shadow: none;
+}
+
+.dark-mode .signin-card .btn-google:focus-visible {
+    outline-color: #9fa8da;
+}
+
+.dark-mode .signin-note {
+    border-top-color: #333;
+    color: #9e9e9e;
+}
+
+/* A scanned card's UID shows under the sign-in card. */
 .not-signed-in-message {
     margin: 0 0 20px;
+}
+
+.signin-screen .not-signed-in-message {
+    width: 100%;
+    max-width: 440px;
+    box-sizing: border-box;
+    margin: 16px 0 0;
 }
 
 /* --- Tabs: the selected tab drops its icon and shows a bold, centred label --- */

@@ -7979,9 +7979,9 @@ function updateAuthUI() {
         checkLoadingCompletion();
     }
 
-    // Signed out, the header banner holds the sign-in button.
+    // Signed out, the sign-in card stands in for the header banner.
     const appHeader = document.querySelector('.app-header');
-    if (appHeader) appHeader.style.display = 'block';
+    if (appHeader) appHeader.style.display = isSignedIn ? 'block' : 'none';
     document.body.classList.toggle('signed-out', !isSignedIn);
 
     // Temporarily hide course buttons; we'll show them later if needed
@@ -8074,16 +8074,14 @@ function updateAuthUI() {
         // Hide course buttons
         if (courseButtonsContainer) courseButtonsContainer.style.display = 'none';
 
-        // The header banner carries the sign-in; a scanned card's UID shows below it.
+        // A scanned card's UID shows under the sign-in card.
         if (lastScannedUID) {
             let notSignedInMsg = notSignedInMsgElement;
             if (!notSignedInMsg) {
                 notSignedInMsg = document.createElement('div');
                 notSignedInMsg.id = 'not-signed-in-message';
                 notSignedInMsg.setAttribute('class', 'not-signed-in-message');
-                const appHeaderElement = document.querySelector('#main-container .app-header');
-                if (appHeaderElement) appHeaderElement.after(notSignedInMsg);
-                else document.getElementById('main-container')?.appendChild(notSignedInMsg);
+                (loginContainer || document.getElementById('main-container'))?.appendChild(notSignedInMsg);
             }
             notSignedInMsg.innerHTML = `
                 <p><i class="fa-solid fa-id-card"></i> The UID of your ID Card is:</p>
