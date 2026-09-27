@@ -129,12 +129,6 @@ Redirect URLs list every page people sign in from.
 If emails stop arriving, check that the domain is still verified and the API
 key still valid in Resend, then look at the `send-email` logs in Supabase.
 
-### Database changes
-
-The files in [supabase/migrations](supabase/migrations/) record changes made to
-the live database. Each has already been applied; to apply one again, paste it
-into the Supabase **SQL Editor**.
-
 ### Deploy the functions
 
 After changing a function, open it in **Supabase → Edge Functions**, replace
