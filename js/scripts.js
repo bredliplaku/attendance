@@ -40,17 +40,13 @@ let isInitializing = true;
 let isChangingCourses = false;
 let pendingNotifications = [];
 let criticalErrorsOnly = true;
-let initialSignIn = true; // Flag to track initial sign-in
 let lastScannedUID = null;
 let courseIDMap = {}; // Object to store course information - name to ID mapping
 let courseInfoMap = {};
 let courseDictionary = {};
-let excusedUIDs = new Set();
 let loadingTasks = new Set(['session', 'auth', 'courses', 'database']);
 let cooldownUIDs = new Set();
 let nfcAbortController = null;
-let initialisedCourses = new Set();
-let initialPullDone = false;
 let guestCourse = null; // Track the course global admin is "visiting" but not officially admin of
 let scanClockInterval = null;
 let globalNotificationCount = 0;
@@ -75,7 +71,6 @@ let activeRequests = new Map(); // Track active requests per course
 let studentLogCache = {};
 let currentRequestId = 0; // Global request counter
 let databaseLoadPromise = null;
-let databaseResolve = null;
 let databaseCache = null;
 let databaseCacheTime = 0;
 const DATABASE_CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
@@ -179,8 +174,6 @@ document.addEventListener('focusin', function (e) {
         }
     }
 }, true); // Use capture phase to intercept early
-
-
 
 /**
 * Helper to get/create the persistent Device ID
@@ -1218,60 +1211,6 @@ function toggleAdminView(viewId, chipElement) {
     }
 }
 
-/**
- * Adds a +1 hour log to the latest entry for every student present on a given day.
- * @param {string} dateStr - The date string in "DD-MM-YYYY" format.
- */
-function addPlusOneHourToDay(dateStr) {
-    if (!isAdmin || !currentCourse) return;
-
-    const logsForCurrentCourse = courseData[currentCourse].logs;
-    const newLogsToAdd = [];
-
-    // 1. Find all logs on the specified day.
-    const logsOnDay = logsForCurrentCourse.filter(log => {
-        const logDate = new Date(log.timestamp);
-        const day = String(logDate.getDate()).padStart(2, '0');
-        const month = String(logDate.getMonth() + 1).padStart(2, '0');
-        const year = logDate.getFullYear();
-        return `${day}-${month}-${year}` === dateStr;
-    });
-
-    // 2. Group by UID to find the latest log for each student.
-    const latestLogByUid = {};
-    logsOnDay.forEach(log => {
-        if (!latestLogByUid[log.uid] || log.timestamp > latestLogByUid[log.uid].timestamp) {
-            latestLogByUid[log.uid] = log;
-        }
-    });
-
-    // 3. Create a new log for each student, +1 hour after their last scan.
-    for (const uid in latestLogByUid) {
-        const latestLog = latestLogByUid[uid];
-        const newDate = new Date(latestLog.timestamp);
-        newDate.setHours(newDate.getHours() + 1);
-
-        let newLog = {
-            uid: uid,
-            timestamp: newDate.getTime(),
-            id: Date.now() + Math.random().toString(36).substring(2, 11),
-            manual: true
-        };
-        newLog = touchLogForEdit(newLog, currentUser?.email);
-        newLogsToAdd.push(newLog);
-    }
-
-    // 4. Add the new logs and update everything.
-    if (newLogsToAdd.length > 0) {
-        courseData[currentCourse].logs.unshift(...newLogsToAdd);
-        saveAndMarkChanges(currentCourse);
-        updateUI();
-        if (isOnline && isSignedIn) syncLogsWithSheet();
-        showNotification('success', 'Bulk Add Complete', `Added a new timestamp for ${newLogsToAdd.length} students on ${dateStr}.`);
-    } else {
-        showNotification('info', 'No Action', `No students to add a new timestamp for on ${dateStr}.`);
-    }
-}
 
 /**
  * Adds a new log entry one hour after the latest existing entry for a group.
@@ -2206,6 +2145,8 @@ function showGlobalSettingsDialog() {
     dialogBackdrop.appendChild(dialog);
     document.body.appendChild(dialogBackdrop);
 
+    StandoWebsite.addDownloadControl(dialog.querySelector('#sect-courses'), { forGlobalAdmin: true });
+
     // --- BOMB LOGIC (Restored) ---
     const profilePicContainer = dialog.querySelector('#admin-profile-pic-container');
     if (profilePicContainer) {
@@ -3024,7 +2965,7 @@ function showAdminProfileDialog() {
     dialogBackdrop.appendChild(dialog);
     document.body.appendChild(dialogBackdrop);
 
-    StandoWebsite.addDownloadControl(dialog.querySelector('#lecturer-courses-container').parentElement, { needsActivation: true });
+    StandoWebsite.addDownloadControl(dialog.querySelector('#lecturer-courses-container').parentElement);
 
     // --- Bomb Logic ---
     const profilePicContainer = dialog.querySelector('#non-admin-profile-pic-container');
@@ -4009,8 +3950,6 @@ function copyToClipboard(text) {
     }
 }
 
-
-
 /**
 * Initialize the application.
 * Sets up event listeners, checks NFC support, and prepares the UI.
@@ -4138,15 +4077,7 @@ function init() {
     setupEnhancedSyncButton();
     setupAuthStateTracking();
 
-    // Handle auth redirect
-
-    // Auto-start disabled for security - user must manually start scanning
-    // if (nfcSupported) {
-    //     startScanning();
-    // }
-
-
-    // Audio unlock removed - was causing annoying sound on first interaction
+    // Scanning never starts on its own; the user starts it manually.
 
     // This prevents the phone from sleeping and killing the sync process
     if ('wakeLock' in navigator) {
@@ -4538,8 +4469,6 @@ function cleanupOldLocalStorage() {
         } catch { /* Keep unrecognised data available for recovery. */ }
     }
 }
-
-
 
 function normalizeGooglePhotoUrl(url) {
     if (!url) return url;
@@ -5067,156 +4996,6 @@ function showDuplicateWarningForNewEntry(newData, duplicates, onCompleteCallback
 }
 
 /**
-* Formats a date object to ISO 8601 (YYYY-MM-DD HH:mm:ss).
-* @param {Date|number} dateInput - The date object or timestamp.
-* @returns {string} The formatted string.
-*/
-function formatISODateTime(dateInput) {
-    if (!dateInput) return 'N/A';
-    const d = new Date(dateInput);
-    if (isNaN(d.getTime())) return 'N/A';
-
-    const pad = (n) => n.toString().padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
-        `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-}
-
-/**
- * Attaches click listeners to the clickable pending registration rows.
- */
-function attachRegistrationRowListeners() {
-    document.querySelectorAll('#registrations-tbody .clickable-request-row').forEach(row => {
-        row.addEventListener('click', function (e) {
-            e.stopPropagation();
-            const data = { ...this.dataset };
-            // Parse row number back to an integer
-            data.rowNumber = parseInt(data.row, 10);
-            showRegistrationDetailsDialog(data);
-        });
-    });
-}
-
-/**
- * Shows a dialog with all details for a registration request.
- */
-function showRegistrationDetailsDialog(data, isReadOnly = false) {
-    openDialogMode();
-
-    const dialogBackdrop = document.createElement('div');
-    dialogBackdrop.setAttribute('class', 'dialog-backdrop');
-    const dialog = document.createElement('div');
-    dialog.setAttribute('class', 'dialog');
-    dialog.setAttribute('role', 'dialog');
-    dialog.setAttribute('aria-modal', 'true');
-
-    const formattedTimestamp = data.timestamp ? new Date(data.timestamp).toLocaleString() : 'N/A';
-
-    const rawUid = (data.uid || '').toString().trim();
-    const isHex = rawUid.includes(':') || /^[0-9A-Fa-f]{8}$/.test(rawUid);
-    const hexUid = isHex ? rawUid : (convertExternalIdToUid(rawUid) || rawUid);
-    const decId = isHex ? (convertUidToExternalId(rawUid) || rawUid) : rawUid;
-
-    let actionsHtml = '';
-    if (isReadOnly) {
-        actionsHtml = `<button id="cancel-details-btn" class="btn-blue">Close</button>`;
-    } else {
-        actionsHtml = `
-    <button id="cancel-details-btn" class="btn-blue"><i class="fa-solid fa-xmark"></i> Close</button>
-    <button id="reject-details-btn" class="btn-red"><i class="fa-solid fa-ban"></i> Reject</button>
-    <button id="approve-details-btn" class="btn-green"><i class="fa-solid fa-check"></i> Approve</button>`;
-    }
-
-    dialog.innerHTML = `
-<h3 class="dialog-title">Review Registration</h3>
-<div class="dialog-content">
-    <div class="form-group" style="align-items: flex-start;">
-        <label>Student</label>
-        <input class="form-control form-group-control" value="${escapeHtml(data.name)}" disabled>
-    </div>
-    <div class="form-group" style="align-items: flex-start;">
-        <label>Email</label>
-        <input class="form-control form-group-control" value="${escapeHtml(data.email)}" disabled>
-    </div>
-    <div class="form-group" style="align-items: flex-start;">
-        <label>Card ID</label>
-        <input class="form-control form-group-control" value="${escapeHtml(decId)}" disabled>
-    </div>
-    <div class="form-group" style="align-items: flex-start;">
-        <label>UID</label>
-        <input class="form-control form-group-control" value="${escapeHtml(hexUid)}" disabled>
-    </div>
-    <div class="form-group" style="align-items: flex-start;">
-        <label>Sent By</label>
-        <input class="form-control form-group-control" value="${escapeHtml(data.sentBy)}" disabled>
-    </div>
-    <div class="form-group" style="align-items: flex-start;">
-        <label>Timestamp</label>
-        <input class="form-control form-group-control" value="${formattedTimestamp}" disabled>
-    </div>
-</div>
-<div class="dialog-actions">
-    ${actionsHtml}
-</div>`;
-
-    dialogBackdrop.appendChild(dialog);
-    document.body.appendChild(dialogBackdrop);
-
-    const closeDialog = () => {
-        if (document.body.contains(dialogBackdrop)) {
-            document.body.removeChild(dialogBackdrop);
-        }
-        closeDialogMode();
-    };
-
-    // --- Wire up buttons ---
-    dialog.querySelector('#cancel-details-btn').addEventListener('click', closeDialog);
-
-    // These buttons just call the *existing* dialog functions
-    dialog.querySelector('#approve-details-btn')?.addEventListener('click', () => {
-        closeDialog();
-        showApproveDialog(data); // data = { rowNumber, name, uid, email }
-    });
-
-    dialog.querySelector('#reject-details-btn')?.addEventListener('click', () => {
-        closeDialog();
-        showRejectDialog(data); // data = { rowNumber, name, email }
-    });
-
-    dialog.querySelector('#delete-details-btn')?.addEventListener('click', () => {
-        closeDialog();
-        showDeleteDialog(data); // data = { rowNumber, name }
-    });
-}
-
-/**
- * Shows a simple confirmation dialog to delete a pending registration without sending an email.
- */
-function showDeleteDialog(registration) {
-    showConfirmationDialog({
-        title: 'Delete Registration?',
-        message: `Are you sure you want to delete the pending registration for "${escapeHtml(registration.name)}"?<br><br><strong>This will not send an email.</strong>`,
-        confirmText: 'Delete',
-        isDestructive: true,
-        onConfirm: () => {
-            // Call the new backend action
-            callWebApp('deleteRegistration', { rowNumber: registration.rowNumber }, 'POST')
-                .then(result => {
-                    if (result && result.result === 'success') {
-                        showNotification('delete', 'Deleted', `Registration for ${registration.name} was deleted.`);
-                        refreshAdminViews(); // Refresh the list
-                    } else {
-                        throw new Error(result ? result.message : 'Delete failed.');
-                    }
-                })
-                .catch(err => {
-                    showNotification('error', 'Delete Failed', err.message);
-                });
-        }
-    });
-}
-
-
-/**
  * Shows an editable dialog to approve a registration with loading feedback.
  */
 function showApproveDialog(registration) {
@@ -5684,8 +5463,6 @@ function renderRegistrationsTable(registrations) {
 
     registrations.forEach(reg => {
         const row = document.createElement('tr');
-        // REMOVED: row.setAttribute('class', 'clickable-request-row'); 
-        // This prevents the pointer cursor and the hover effect
 
         let formattedTimestamp = reg.timestamp ? new Date(reg.timestamp).toLocaleString() : 'N/A';
 
@@ -6504,8 +6281,6 @@ function showRequestPermissionDialog() {
         if (!selectedReason) errors.push("Select a reason.");
         if (!captchaSolved) errors.push("Please solve the verification puzzle.");
 
-
-
         // 2. Reason Specific Validation
         if (selectedReason === 'Medical' && !file) errors.push("Medical report is required.");
         if (selectedReason === 'Official' && !file) errors.push("Official document is required.");
@@ -7298,13 +7073,6 @@ async function callSupabase(action, payload = {}) {
                 sent_by: sentBy
             }));
             return { result: 'success', message: 'Registration submitted successfully' };
-        }
-
-        case 'deleteRegistration': {
-            const id = parseInt(payload.rowNumber);
-            if (!id || isNaN(id)) throw new Error('Invalid row number provided');
-            sbUnwrap(await supabaseClient.from('registrations').delete().eq('id', id));
-            return { result: 'success', message: 'Registration deleted' };
         }
 
         case 'deleteAbsenceRequest': {
@@ -8239,163 +8007,6 @@ function setupAuthStateTracking() {
     });
 }
 
-/**
- * Populate course dropdown with available courses.
- */
-function populateCourseDropdown() {
-    const courseButtonsContainer = document.getElementById('course-buttons-container');
-    if (!courseButtonsContainer) return;
-
-    const activeTabId = document.querySelector('.tab.active')?.dataset.tab;
-
-    if (!isSignedIn) {
-        courseButtonsContainer.innerHTML = ''; // Clear any old buttons
-        const button = document.createElement('div');
-        button.setAttribute('class', 'course-button active'); // Make the default button active
-        button.innerHTML = `<i class="fa-solid fa-table-list"></i>&nbsp; Default`;
-        courseButtonsContainer.appendChild(button);
-        courseButtonsContainer.style.display = 'flex';
-        return; // Exit the function here for signed-out users
-    }
-
-    // This block handles the logic for signed-in users.
-    if (activeTabId === 'database-tab') {
-        courseButtonsContainer.style.display = 'none'; // Keep it hidden on the database tab
-    } else {
-        courseButtonsContainer.style.display = 'flex'; // Show it on other tabs
-    }
-    courseButtonsContainer.innerHTML = '';
-    let coursesToDisplay = availableCourses.filter(c => !courseInfoMap[c]?.archived || c === guestCourse);
-
-    if (!isAdmin && currentUser) {
-        const studentNameNormalised = normalizeName(currentUser.name);
-        const studentEmail = currentUser.email ? currentUser.email.toLowerCase() : '';
-
-        coursesToDisplay = availableCourses.filter(course => {
-            const logsForCourse = studentLogCache[course] || [];
-
-            // If no logs cached for this course, include it (student might have logs but cache failed)
-            if (logsForCourse.length === 0) {
-                return true; // Show the course, let the backend filter it
-            }
-
-            // Check if at least one log in this course belongs to the student
-            return logsForCourse.some(log => {
-                // Try multiple matching strategies for robustness
-
-                // Strategy 1: Match by UID in database
-                const logOwnerName = databaseMap[log.uid]?.name || '';
-                if (logOwnerName && normalizeName(logOwnerName) === studentNameNormalised) {
-                    return true;
-                }
-
-                // Strategy 2: Match by email if available in log
-                if (log.email && studentEmail && log.email.toLowerCase() === studentEmail) {
-                    return true;
-                }
-
-                // Strategy 3: Match by name if stored directly in log
-                if (log.name && normalizeName(log.name) === studentNameNormalised) {
-                    return true;
-                }
-
-                return false;
-            });
-        });
-    }
-
-    coursesToDisplay.forEach(course => {
-        const button = document.createElement('div');
-        button.setAttribute('class', 'course-button' + (currentCourse === course ? ' active' : ''));
-        button.innerHTML = `<i class="fa-solid fa-table-list"></i>&nbsp; ${escapeHtml(course.replace(/_/g, ' '))}`;
-        button.addEventListener('click', () => selectCourseButton(course));
-        courseButtonsContainer.appendChild(button);
-    });
-
-    if (!currentCourse && coursesToDisplay.length > 0) {
-        selectCourseButton(coursesToDisplay[0]);
-    }
-}
-
-async function loadAllCourseLogsForCourseAdmin() {
-    if (!isAdmin || isGlobalAdmin || !isOnline || !isSignedIn) {
-        return;
-    }
-
-    // Clear any old student cache
-    studentLogCache = {};
-
-    const fetchPromises = availableCourses.map(async (course) => {
-        try {
-            // Call the Web App endpoint
-            const serverLogs = await callWebApp('getCourseLogs_Admin', { courseName: course }, 'POST');
-
-            if (serverLogs && serverLogs.length > 0) {
-                // We can use studentLogCache for this, its just a cache
-                studentLogCache[course] = serverLogs;
-            }
-        } catch (err) {
-            console.error(`Failed to call Apps Script for ${course}:`, err);
-        }
-    });
-
-    await Promise.all(fetchPromises);
-
-    // Populate courseData for the course admin
-    availableCourses.forEach(course => {
-        if (studentLogCache[course]) {
-            courseData[course] = {
-                logs: studentLogCache[course],
-                tombstones: new Set() // Backend already applies tombstones to these logs
-            };
-        }
-    });
-
-    updateUI();
-}
-
-/**
-* Proactively fetches and caches logs for all available courses FOR A STUDENT.
-*/
-async function loadAllCourseLogsForStudent() {
-    if (isGlobalAdmin || !isOnline || !isSignedIn) {
-        loadingTasks.delete('courses'); // CRITICAL: Remove from loading tasks
-        loadingTasks.delete('database');
-        loadingTasks.delete('session');
-        checkLoadingCompletion();
-        return;
-    }
-    if (!isOnline || !isSignedIn) return;
-    studentLogCache = {};
-
-    const fetchPromises = availableCourses.map(async (course) => {
-        try {
-            // Call the Web App using GET, parameters go in payload
-            const serverLogs = await callWebApp('getStudentLogs', { courseName: course }, 'POST');
-            // No need to parse JSON, callWebApp already does it
-            if (serverLogs && serverLogs.length > 0) {
-                studentLogCache[course] = serverLogs;
-            }
-        } catch (err) {
-            console.error(`Failed to call Apps Script for ${course}:`, err);
-        }
-    });
-
-    await Promise.all(fetchPromises);
-
-    // Also populate courseData for students (without tombstones since they can't edit)
-    availableCourses.forEach(course => {
-        if (studentLogCache[course]) {
-            courseData[course] = {
-                logs: studentLogCache[course],
-                tombstones: new Set() // Students can't delete, so no tombstones
-            };
-        }
-    });
-
-    updateUI();
-}
-
 
 /**
  * Update online/offline status indicator.
@@ -8633,18 +8244,6 @@ function saveAndMarkChanges(courseName) {
     else if (isSignedIn && !isSyncing) updateSyncStatus('Pending sync...', 'waiting');
 }
 
-// Helper function to convert a timestamp to a local ISO-like string (without timezone info)
-function convertTimestampToLocalISOString(timestamp) {
-    const date = new Date(timestamp);
-    const pad = (num) => String(num).padStart(2, '0');
-    // Build a string like "YYYY-MM-DDTHH:MM:SS"
-    return date.getFullYear() + '-' +
-        pad(date.getMonth() + 1) + '-' +
-        pad(date.getDate()) + 'T' +
-        pad(date.getHours()) + ':' +
-        pad(date.getMinutes()) + ':' +
-        pad(date.getSeconds());
-}
 
 /**
 * Syncs the logs for the CURRENTLY SELECTED course with its Google Sheet.
@@ -8754,8 +8353,6 @@ function updateSortIcons() {
         }
     }
 }
-
-
 
 /**
  * Handle filter input change for logs.
@@ -9291,67 +8888,6 @@ function showAlertDialog(title, message) {
     };
 
     document.getElementById('dialog-ok-btn').addEventListener('click', closeDialog);
-    dialogBackdrop.addEventListener('click', (e) => {
-        if (e.target === dialogBackdrop) closeDialog();
-    });
-}
-
-/**
-* Displays a custom, non-blocking prompt dialog.
-* @param {object} options - The options for the dialog.
-*/
-function showPromptDialog({ title, message, initialValue = '', confirmText = 'Confirm', cancelText = 'Cancel', onConfirm }) {
-    openDialogMode();
-    const existingDialog = document.querySelector('.dialog-backdrop');
-    if (existingDialog) existingDialog.remove();
-
-    const dialogBackdrop = document.createElement('div');
-    dialogBackdrop.setAttribute('class', 'dialog-backdrop');
-
-    const dialog = document.createElement('div');
-    dialog.setAttribute('class', 'dialog');
-    dialog.setAttribute('role', 'dialog');
-    dialog.setAttribute('aria-modal', 'true');
-    dialog.innerHTML = `
-        <h3 class="dialog-title">${title}</h3>
-        <div class="dialog-content"><p>${message}</p>
-        <div class="form-group">
-            <input type="text" id="dialog-prompt-input" class="form-control" value="${initialValue}">
-        </div>
-        </div><div class="dialog-actions">
-            <button id="dialog-cancel-btn" class="btn-red">${cancelText}</button>
-            <button id="dialog-confirm-btn" class="btn-green">${confirmText}</button>
-        </div>
-    `;
-
-    dialogBackdrop.appendChild(dialog);
-    document.body.appendChild(dialogBackdrop);
-
-    const confirmBtn = document.getElementById('dialog-confirm-btn');
-    const cancelBtn = document.getElementById('dialog-cancel-btn');
-    const input = document.getElementById('dialog-prompt-input');
-    input.focus();
-    input.select();
-
-    const closeDialog = () => {
-        // This line assumes 'dialogBackdrop' is available in the function's scope.
-        if (document.body.contains(dialogBackdrop)) {
-            document.body.removeChild(dialogBackdrop);
-        }
-        closeDialogMode(); // Restore background scrolling
-    };
-
-    const confirmAction = () => {
-        onConfirm(input.value);
-        closeDialog();
-    };
-
-    confirmBtn.addEventListener('click', confirmAction);
-    input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') confirmAction();
-    });
-
-    cancelBtn.addEventListener('click', closeDialog);
     dialogBackdrop.addEventListener('click', (e) => {
         if (e.target === dialogBackdrop) closeDialog();
     });
@@ -10285,40 +9821,6 @@ function toggleBulkMode() {
     updateBulkUI();
 }
 
-function deleteSelectedLogs() {
-    if (selectedLogIds.size === 0) return;
-
-    showConfirmationDialog({
-        title: `Delete ${selectedLogIds.size} entries?`,
-        message: "All selected logs will be deleted. This cannot be undone.",
-        confirmText: "Delete All",
-        isDestructive: true,
-        onConfirm: () => {
-            // 1. Optimistic UI update
-            // We need to filter out ALL logs that match the selected "Group Keys" or IDs
-            // Ideally, we collected log IDs. 
-
-            const idsToDelete = Array.from(selectedLogIds);
-
-            if (isGlobalAdmin) {
-                idsToDelete.forEach(id => addToTombstones(id));
-                courseData[currentCourse].logs = courseData[currentCourse].logs.filter(log => !idsToDelete.includes(log.id));
-
-                toggleBulkMode();
-                saveAndMarkChanges(currentCourse);
-                updateUI();
-                if (isOnline && isSignedIn) syncLogsWithSheet();
-            } else {
-                // Course Admin: Delete one by one via backend
-                Promise.all(idsToDelete.map(id => deleteLogViaBackend(id))).then(() => {
-                    courseData[currentCourse].logs = courseData[currentCourse].logs.filter(log => !idsToDelete.includes(log.id));
-                    toggleBulkMode();
-                    updateUI();
-                });
-            }
-        }
-    });
-}
 
 /**
  * Delete a log via backend API (for non-global admins)
@@ -10956,13 +10458,6 @@ function updateLogsList() {
                 eisBtn.setAttribute('aria-label', `Add attendance for ${group.date} to EIS`);
                 eisBtn.onclick = (e) => { e.stopPropagation(); showDirectEisExportDialog(dateForButton); };
                 buttonContainer.appendChild(eisBtn);
-                /* const bulkAddBtn = document.createElement('button');
-                 bulkAddBtn.setAttribute('class', 'btn-green btn-sm');
-                 bulkAddBtn.innerHTML = '<i class="fa-solid fa-clone"></i>';
-                 bulkAddBtn.title = 'Add +1 Hour to All Students on This Day';
-                 bulkAddBtn.setAttribute('aria-label', `Add a plus one hour log to all students on ${group.date}`);
-                 bulkAddBtn.onclick = (e) => { e.stopPropagation(); addPlusOneHourToDay(dateForButton); }; 
-                 buttonContainer.appendChild(bulkAddBtn); */
                 flexWrapper.appendChild(buttonContainer);
                 separatorCell.appendChild(flexWrapper);
                 separatorRow.appendChild(separatorCell);
@@ -12189,8 +11684,6 @@ async function handleNfcReading({ serialNumber }) {
         }
     }
 }
-
-
 
 /**
  * Handle NFC error.

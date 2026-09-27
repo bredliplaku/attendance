@@ -12,14 +12,18 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 // Kept in this file so it can be pasted directly into the Supabase dashboard.
-// Only the central installation is built in. Manage all other websites through
-// the complete STANDO_ALLOWED_ORIGINS value in Supabase Edge Function secrets.
-const allowedOrigins = new Set([
-  "https://bredliplaku.com",
-  "https://www.bredliplaku.com",
-  "https://attendance.bredliplaku.com",
-  "https://bredliplaku.github.io",
-]);
+// Only the central installation is built in; set the STANDO_APP_URL secret when
+// Stando moves. Manage all other websites through the complete
+// STANDO_ALLOWED_ORIGINS value in Supabase Edge Function secrets.
+const DEFAULT_APP_URL = "https://bredliplaku.com/stando/";
+const APP_URL = (() => {
+  try {
+    const url = new URL(Deno.env.get("STANDO_APP_URL") || DEFAULT_APP_URL);
+    if (url.protocol === "https:") return url.origin + url.pathname.replace(/\/?$/, "/");
+  } catch { /* Fall back to the default address. */ }
+  return DEFAULT_APP_URL;
+})();
+const allowedOrigins = new Set([new URL(APP_URL).origin]);
 const localhostPattern = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 
 for (const value of (Deno.env.get("STANDO_ALLOWED_ORIGINS") ?? "").split(",")) {

@@ -4,6 +4,7 @@
 // Secrets required (Dashboard → Edge Functions → Secrets, or `supabase secrets set`):
 //   RESEND_API_KEY  — from resend.com (free tier)
 //   MAIL_FROM       — e.g.  Smart Attendance <attendance@bredliplaku.com>
+// Optional: STANDO_APP_URL — the app address used in email links (see below).
 //
 // Templates: absence_submitted | absence_approved | absence_rejected
 //            | registration_approved | registration_rejected
@@ -15,14 +16,18 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 // Kept in this file so it can be pasted directly into the Supabase dashboard.
-// Only the central installation is built in. Manage all other websites through
-// the complete STANDO_ALLOWED_ORIGINS value in Supabase Edge Function secrets.
-const allowedOrigins = new Set([
-  "https://bredliplaku.com",
-  "https://www.bredliplaku.com",
-  "https://attendance.bredliplaku.com",
-  "https://bredliplaku.github.io",
-]);
+// Only the central installation is built in; set the STANDO_APP_URL secret when
+// Stando moves. Manage all other websites through the complete
+// STANDO_ALLOWED_ORIGINS value in Supabase Edge Function secrets.
+const DEFAULT_APP_URL = "https://bredliplaku.com/stando/";
+const APP_URL = (() => {
+  try {
+    const url = new URL(Deno.env.get("STANDO_APP_URL") || DEFAULT_APP_URL);
+    if (url.protocol === "https:") return url.origin + url.pathname.replace(/\/?$/, "/");
+  } catch { /* Fall back to the default address. */ }
+  return DEFAULT_APP_URL;
+})();
+const allowedOrigins = new Set([new URL(APP_URL).origin]);
 const localhostPattern = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 
 for (const value of (Deno.env.get("STANDO_ALLOWED_ORIGINS") ?? "").split(",")) {
@@ -58,7 +63,6 @@ function corsHeaders(req: Request): Record<string, string> {
 }
 
 const FALLBACK_GLOBAL_ADMINS = ["bplaku@epoka.edu.al"];
-const APP_URL = "https://bredliplaku.com/attendance/";
 
 const service = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -75,7 +79,7 @@ const valueStyle = `padding:10px 14px;font-size:14px;color:#333;${rowStyle}`;
 const lastLabelStyle = `padding:10px 14px;font-size:12px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.6px;white-space:nowrap;vertical-align:middle;width:110px;`;
 const lastValueStyle = `padding:10px 14px;font-size:14px;color:#333;`;
 const footerHtml = `<hr style="border:none;border-top:1px solid #eee;margin:20px 0 8px;">
-<p style="font-size:11px;color:#aaa;margin:0;">This is an automatically generated email. Please do not reply directly.</p>`;
+<p style="font-size:11px;color:#aaa;margin:0;">This is an automatically generated email.</p>`;
 
 function escapeHtml(s: string): string {
   return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
@@ -138,18 +142,38 @@ function getSignatureHtml(): string {
   return `<tbody><tr><td style="padding:15px 0px;vertical-align:top"><table cellpadding="0" cellspacing="0" border="0" style="border-left:3px solid rgb(0,83,161);padding-left:12px;padding-bottom:10px"><tbody><tr><td style="padding-bottom:5px"><span style="font-weight:800;color:rgb(0,83,161);font-size:14px">Bredli PLAKU</span><br><span style="font-size:12px;color:rgb(0,0,0)">Assistant Lecturer | MSc</span><br><span style="color:rgb(0,83,161);font-size:12px">Department of Civil Engineering</span><br><span style="color:rgb(0,83,161);font-size:12px">Faculty of Architecture and Engineering</span><br></td></tr><tr><td><table cellpadding="0" cellspacing="0" border="0" style="font-size:12px"><tbody><tr><td style="padding-bottom:3px;width:60px"><strong>Website:</strong></td><td style="padding-bottom:3px;color:rgb(0,0,0)"><a href="https://bredliplaku.com" target="_blank" rel="noopener noreferrer" style="color: inherit; text-decoration: none;">bredliplaku.com</a></td></tr><tr><td style="padding-bottom:3px;width:60px"><strong>Office:</strong></td><td style="padding-bottom:3px;color:rgb(0,0,0)">A-032</td></tr><tr><td style="padding-bottom:3px;width:60px"><strong>Phone:</strong></td><td style="padding-bottom:3px;color:rgb(0,0,0)">+355 42 232 086 ext. 1556</td></tr><tr><td style="padding-bottom:3px;width:60px"><strong>Email:</strong></td><td style="padding-bottom:3px;color:rgb(0,0,0)">bplaku@epoka.edu.al</td></tr><tr><td style="padding-bottom:3px;width:60px;vertical-align:top"><strong>Address:</strong></td><td style="color:rgb(0,0,0)">Rruga Tiranë-Rinas, Km. 12<br>1032 Vorë, Tirana, Albania 🇦🇱</td></tr></tbody></table></td></tr></tbody></table></td></tr></tbody>`;
 }
 
-async function getSignatureForAdmin(adminEmail: string): Promise<string> {
+// A name that starts with an academic title signs in full ("Assoc. Prof. Dr. Ana
+// Hoxha"); any other name signs with the first name ("Ana").
+const TITLE_WORD = /^(?:(?:dr|prof|professor|assoc|associate|asst|assist|assistant|lect|lecturer|msc|phd|mr|mrs|ms|ing)\.?)+$/i;
+
+function signatureName(fullName: string): string {
+  const words = String(fullName ?? "").trim().split(/\s+/).filter(Boolean);
+  const nameWords = words.filter((word) => !TITLE_WORD.test(word));
+  if (nameWords.length === 0) return "";
+  return TITLE_WORD.test(words[0]) ? words.join(" ") : nameWords[0];
+}
+
+// Name and address as an email header value, e.g. "Ana Hoxha" <ana@example.com>.
+function mailbox(name: string, email: string): string {
+  const cleanName = String(name ?? "").replace(/["<>\r\n]/g, "").trim();
+  return cleanName ? `"${cleanName}" <${email}>` : email;
+}
+
+// The Staff name when one is set, otherwise the caller's Google name.
+async function getCallerName(callerEmail: string, googleName: string): Promise<string> {
+  const { data } = await service.from("staff").select("name").ilike("email", callerEmail);
+  return String(data?.[0]?.name ?? "").trim() || googleName.trim();
+}
+
+function getSignatureForAdmin(adminEmail: string, adminName: string): string {
   const isGlobalOwner = FALLBACK_GLOBAL_ADMINS.some(
     (a) => a.trim().toLowerCase() === (adminEmail || "").trim().toLowerCase(),
   );
   if (isGlobalOwner) {
     return `<p style="margin:0 0 4px;">Best,<br>Bredli</p><table cellpadding="0" cellspacing="0" border="0">${getSignatureHtml()}</table>`;
   }
-  const { data } = await service.from("staff").select("name").ilike("email", adminEmail);
-  if (data && data.length > 0 && data[0].name) {
-    return `<p>Best,<br>${escapeHtml(data[0].name.trim().split(" ")[0])}</p>`;
-  }
-  return `<p>Best,</p>`;
+  const name = signatureName(adminName);
+  return name ? `<p>Best,<br>${escapeHtml(name)}</p>` : `<p>Best,</p>`;
 }
 
 async function getAdminEmailsForCourse(courseName: string): Promise<string[]> {
@@ -188,7 +212,8 @@ function resolveAttachmentUrl(stored: string): string {
   return APP_URL + "?attachment=" + encodeURIComponent(stored);
 }
 
-async function sendViaResend(mail: { to: string[]; cc?: string[]; subject: string; html: string }) {
+// Replies go to replyTo (the person the email speaks for), not to MAIL_FROM.
+async function sendViaResend(mail: { to: string[]; cc?: string[]; replyTo: string; subject: string; html: string }) {
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
@@ -199,6 +224,7 @@ async function sendViaResend(mail: { to: string[]; cc?: string[]; subject: strin
       from: Deno.env.get("MAIL_FROM")!,
       to: mail.to,
       cc: mail.cc && mail.cc.length > 0 ? mail.cc : undefined,
+      reply_to: mail.replyTo,
       subject: mail.subject,
       html: mail.html,
     }),
@@ -251,7 +277,17 @@ Deno.serve(async (req) => {
       if (adminTemplates.includes(template) && !isAdmin) {
         return json({ result: "error", message: "Not authorized." }, 403);
       }
+      // Only global administrators handle card registrations.
+      if (template.startsWith("registration_") && !isGlobalAdmin) {
+        return json({ result: "error", message: "Not authorized." }, 403);
+      }
     }
+
+    // Admin emails speak for whoever clicked: signed with their name, replies go to them.
+    const callerName = adminTemplates.includes(template)
+      ? await getCallerName(callerEmail, String(user.user_metadata?.full_name ?? user.user_metadata?.name ?? ""))
+      : "";
+    const callerMailbox = mailbox(callerName, callerEmail);
 
     // ------------------------------------------------------------------
     if (template === "absence_submitted") {
@@ -294,6 +330,7 @@ Deno.serve(async (req) => {
       await sendViaResend({
         to: await formatAdminEmailsForCC(notifyAdmins),
         cc: [`"${reqRow.student_name}" <${reqRow.student_email}>`],
+        replyTo: mailbox(reqRow.student_name, reqRow.student_email),
         subject: `Permission Request for ${formattedCourseName}`,
         html: bodyHtml,
       });
@@ -311,7 +348,7 @@ Deno.serve(async (req) => {
       const formattedCourseName = String(reqRow.course || "").replace(/_/g, " ");
       const subject = `Permission Request for ${formattedCourseName}`;
       const firstName = reqRow.student_name ? reqRow.student_name.split(" ")[0] : "Student";
-      const signatureHtml = await getSignatureForAdmin(callerEmail);
+      const signatureHtml = getSignatureForAdmin(callerEmail, callerName);
       const courseAdmins = await getAdminEmailsForCourse(reqRow.course);
       const attachmentUrl = resolveAttachmentUrl(reqRow.attachment_url || "");
       const formattedDate = reqRow.absence_date ? formatDateForEmail(reqRow.absence_date) : "";
@@ -388,6 +425,7 @@ Deno.serve(async (req) => {
       await sendViaResend({
         to: [`"${reqRow.student_name}" <${reqRow.student_email}>`],
         cc: courseAdmins.length > 0 ? await formatAdminEmailsForCC(courseAdmins) : undefined,
+        replyTo: callerMailbox,
         subject,
         html: bodyHtml,
       });
@@ -401,7 +439,7 @@ Deno.serve(async (req) => {
       if (!email) throw new Error("Missing student email.");
       const firstName = name.trim() ? name.split(" ")[0] : "Student";
       const greeting = name.trim() ? `Dear ${escapeHtml(firstName)},` : "Dear,";
-      const signatureHtml = await getSignatureForAdmin(callerEmail);
+      const signatureHtml = getSignatureForAdmin(callerEmail, callerName);
 
       const bodyHtml = `
         <div style="font-family:Arial,'Helvetica Neue',Helvetica,sans-serif;font-size:14px;color:#333;line-height:1.6;max-width:600px;">
@@ -412,13 +450,14 @@ Deno.serve(async (req) => {
               Please ensure you always bring your student ID card to class. You are responsible for your own attendance if you do not have it with you.
             </td></tr>
           </table>
-          <p style="margin:0 0 20px;font-size:13px;color:#555;">Track your attendance at <a href="https://attendance.bredliplaku.com" target="_blank" style="color:#0053A1;">attendance.bredliplaku.com</a>.</p>
+          <p style="margin:0 0 20px;font-size:13px;color:#555;">Track your attendance at <a href="${APP_URL}" target="_blank" style="color:#0053A1;">${escapeHtml(APP_URL.replace(/^https:\/\//, "").replace(/\/$/, ""))}</a>.</p>
           ${signatureHtml}
           ${footerHtml}
         </div>`;
 
       await sendViaResend({
         to: [`"${name}" <${email}>`],
+        replyTo: callerMailbox,
         subject: "Your Student ID Card Application has been Approved",
         html: bodyHtml,
       });
@@ -432,7 +471,7 @@ Deno.serve(async (req) => {
       const message = String(params.message ?? "");
       if (!email || !message) return json({ result: "success" }); // nothing to send
       const firstName = name.trim() ? name.split(" ")[0] : "Student";
-      const signatureHtml = await getSignatureForAdmin(callerEmail);
+      const signatureHtml = getSignatureForAdmin(callerEmail, callerName);
 
       const bodyHtml = `
         <div style="font-family:Arial,'Helvetica Neue',Helvetica,sans-serif;font-size:14px;color:#333;line-height:1.6;max-width:600px;">
@@ -446,6 +485,7 @@ Deno.serve(async (req) => {
 
       await sendViaResend({
         to: [`"${name}" <${email}>`],
+        replyTo: callerMailbox,
         subject: "Your Student ID Card Application has been Rejected",
         html: bodyHtml,
       });

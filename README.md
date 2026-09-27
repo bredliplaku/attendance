@@ -19,9 +19,9 @@ available to you. Contact an administrator if you need access.
 
 | User | What you can do |
 |---|---|
-| Lecturers | Take attendance, manage student lists, correct records and review absence requests. |
 | Students | View your attendance, register your card and request an excused absence with a supporting document. |
-| Administrators | Manage staff access, assign courses and approve devices used for attendance. |
+| Lecturers | Take attendance, correct records, review absence requests and send a student's card for approval. |
+| Global administrators | Everything above, plus the student list, card approvals, staff, courses and trusted devices. |
 
 ### Taking attendance
 
@@ -35,18 +35,19 @@ Chrome browser and an HTTPS website. You can view records without a card reader.
 If the connection drops, pending attendance changes stay on that device.
 Reconnect and check the sync status to make sure they have been saved online.
 
-### Student lists and exports
+### Student list and exports
 
-Upload an Excel or CSV student list instead of entering everyone by hand.
-Use **Import → Download template** for a starting file, or match the columns
-in an existing spreadsheet. Review the preview before saving:
+Global administrators manage the student list in the **Student List** tab.
+Upload an Excel or CSV file instead of entering everyone by hand: use
+**Import → Download template** for a starting file, then review the preview:
 
 - **Merge** adds new students and updates those with a matching card ID or email.
 - **Replace All** replaces the entire student list.
 
-You can also download student lists as Excel files and export attendance
-for backup or later import. For courses using EIS, **Add to EIS** helps
-transfer attendance there.
+Lecturers can export attendance for backup or later import. For courses using
+EIS, **Add to EIS** copies a day's attendance; the
+[EIS userscripts](extensions/) (installed with a userscript manager such as
+Tampermonkey) fill it in on the EIS page.
 
 <details>
 <summary>Student import format</summary>
@@ -62,117 +63,131 @@ a name and either a card ID or email. Imports need an internet connection.
 
 ## Use Stando on another website
 
-1. Sign in as a lecturer, click your photo or name to open **My Courses**, and
-   choose **Download index.html**. Global administrators work on the main site,
-   so their Settings have no download.
+1. Sign in and click your photo or name. Lecturers choose **Download index.html**
+   in **My Courses**; global administrators find it at the top of
+   **Settings → Courses**.
 2. Upload the downloaded file as `index.html` to an HTTPS website folder,
    for example `https://example.com/attendance/`.
-3. Ask the administrator to approve the website using the steps below.
+3. Ask the administrator to approve the website (below).
 
-This puts Stando on your website without having to maintain a separate copy.
 Every visitor signs in with their own account and sees the courses they can
-access. Routine app and attendance updates appear without another download.
+access. App updates reach the page without another download.
 
 ## Administration
 
 ### Approve a new website
 
-Once the updated Edge Functions are deployed, **adding a website requires
-settings changes only. Neither function's `index.ts` needs editing.**
+1. In Supabase, open **Authentication → URL Configuration → Redirect URLs** and
+   add the page address, such as `https://example.com/attendance/`. On a domain
+   only you publish to, `https://example.com/**` covers every folder.
+2. Open **Edge Functions → Secrets** and save `STANDO_ALLOWED_ORIGINS` with the
+   **complete** comma-separated list of approved websites, such as
+   `https://example.com,https://example.org`. Saving replaces the whole value,
+   and it is hidden afterwards, so keep your own copy of the list.
+3. Optional: for Google's automatic sign-in prompt (One Tap), add the website to
+   **Authorized JavaScript origins** of the Google Cloud OAuth client.
 
-1. In the existing Supabase project, open **Authentication → URL Configuration
-   → Redirect URLs**. Add the full page address, such as
-   `https://example.com/attendance/`. Include
-   `https://example.com/attendance/index.html` if visitors open that URL
-   directly. Keep the existing Site URL.
-2. Open **Edge Functions → Secrets**. Create or overwrite
-   `STANDO_ALLOWED_ORIGINS` with the **complete list** of additional approved
-   origins, including all previous entries and the new website. Click **Save**.
+Without step 2 the page works, but emails and staff card sign-in fail there.
+Sign-ins and trusted devices are separate on each website.
 
-Example secret value:
-
-```text
-https://example.com,https://www.example.com,https://example.org,https://www.example.org
-```
-
-An origin includes `https://` and the domain, with no folder, quotes or
-wildcards. Include both `www` and non-`www` in the relevant settings when
-both are used.
-
-**Secret values are hidden after saving.** Keep a separate record of the full
-list and paste that whole list when updating it. Saving only the new domain
-would replace the previous entries. Secret updates require no redeployment.
-
-**Optional — Google One Tap:** to enable the automatic sign-in prompt, add the
-website origin to **Authorized JavaScript origins** in the Google web client
-matching `CLIENT_ID` in [js/scripts.js](js/scripts.js). The **Sign in with Google**
-button in the page header uses the Supabase redirect configured above.
-
-Open the uploaded page and sign in after approval. Sessions, preferences and
-device IDs are separate on each website, so trusted devices may need approval
-again. A new lecturer on an already-approved website needs only account and
-course assignments.
-
-Reference: [Supabase redirects](https://supabase.com/docs/guides/auth/redirect-urls),
-[secret settings](https://supabase.com/docs/guides/functions/secrets#production-secrets),
-[Google origins](https://developers.google.com/identity/gsi/web/guides/get-google-api-clientid).
-
-### Staff names and photos
+### Staff names and email signatures
 
 Staff photos and default names come from each person's Google account after
-their first Google sign-in. In **Settings → Staff**, leave a name empty to use
-the Google name, or enter one to add a title or change it.
+their first sign-in. In **Settings → Staff**, leave a name empty to use the
+Google name, or enter one to change it.
 
-## Developer notes
+Approval and rejection emails are signed by whoever clicked, and replies go to
+them. A name that starts with an academic title signs in full
+("Assoc. Prof. Dr. Ana Hoxha"); other names sign with the first name ("Ana").
 
-Stando uses HTML, CSS and JavaScript, Supabase for authentication and backend
-services, and Google Identity Services for One Tap.
+## Setup and maintenance
 
-### Database functions
+### What Stando runs on
 
-Staff photos and Google names are read through the `staff_profiles` function in
-[supabase/migrations](supabase/migrations/20260924120000_staff_profiles.sql).
-For a new Supabase project, run that file once in the **SQL Editor**. Without
-it, staff lists show initials and the names entered in Settings.
+| Service | Used for | Remember |
+|---|---|---|
+| GitHub Pages | Hosts this repository at `https://bredliplaku.com/stando/`. | Publishing = pushing to `main`. |
+| Supabase | Sign-in, database, uploaded documents, and the `kiosk-login` and `send-email` functions. | Settings and secrets below. |
+| Google Cloud | The OAuth client behind **Sign in with Google** and One Tap. | Supabase's Google provider uses its client ID and secret. |
+| Resend | Sends every email, from an address on `bredliplaku.com`. | The domain must stay verified in Resend; its DNS records live at Porkbun. |
+| Porkbun | Domain and DNS for `bredliplaku.com`. | Keep Resend's DNS records when changing DNS. The BIMI record shows the logo at `https://bredliplaku.com/miscellaneous/profile.svg` (personal website) next to emails. |
 
-### Deploy application changes
+### Supabase settings
 
-Publish the application files together. For Edge Function code changes:
+**Edge Functions → Secrets**
 
-1. In **Supabase → Edge Functions → Functions**, open **kiosk-login**.
-2. Select **Code → index.ts**, replace its contents with the complete
-   [kiosk-login source](supabase/functions/kiosk-login/index.ts), and click
-   **Deploy updates**.
-3. Repeat for **send-email** using the complete
-   [send-email source](supabase/functions/send-email/index.ts).
+| Secret | Value |
+|---|---|
+| `RESEND_API_KEY` | From Resend → API Keys. |
+| `MAIL_FROM` | The sender, such as `Stando <attendance@bredliplaku.com>`. It must use the domain verified in Resend. |
+| `STANDO_ALLOWED_ORIGINS` | The approved websites (see above). |
+| `STANDO_APP_URL` | Optional. Set only when Stando moves to a new address. |
 
-Each function is self-contained for dashboard editing. Keep the existing
-authentication settings and secrets. Deploy these updated functions once when
-setting up website downloads, then again only when their code changes.
+**Authentication → URL Configuration:** the Site URL is Stando's address;
+Redirect URLs list every page people sign in from.
 
-CLI alternative:
+If emails stop arriving, check that the domain is still verified and the API
+key still valid in Resend, then look at the `send-email` logs in Supabase.
 
-```sh
-supabase functions deploy kiosk-login
-supabase functions deploy send-email
-```
+### Database changes
 
-### Maintain existing uploads
+The files in [supabase/migrations](supabase/migrations/) record changes made to
+the live database. Each has already been applied; to apply one again, paste it
+into the Supabase **SQL Editor**.
 
-- Keep the central address in [js/website.js](js/website.js), [embed.js](embed.js)
-  and the application assets available. The loader needs cross-origin access
-  to the central HTML; host security policies must permit the required assets
-  and services.
-- Application and data updates need no replacement download. Earlier downloads
-  remain valid when another copy is generated.
-- The downloaded HTML contains its initial theme styling and favicon link.
-  Changes to those require replacing the uploaded file; the favicon comment
-  identifies the setting.
-- Only the central installation's origins are built into the Edge Functions.
-  Manage all lecturer websites through `STANDO_ALLOWED_ORIGINS`; new websites
-  require no edits to either function.
-- Website approval and account permissions are separate. Removing a website
-  from configuration does not revoke previously issued sessions.
+### Deploy the functions
+
+After changing a function, open it in **Supabase → Edge Functions**, replace
+`index.ts` with the file from [supabase/functions](supabase/functions/), and
+click **Deploy updates**. Each file is self-contained. With the CLI:
+`supabase functions deploy send-email` (or `kiosk-login`).
+
+### Addresses
+
+| Address | What it is |
+|---|---|
+| `https://bredliplaku.com/stando/` | Stando itself: this repository (`APP_URL` in [js/website.js](js/website.js)). |
+| `https://bredliplaku.com/attendance/` | A personal-website folder with a global administrator's `index.html` and a forwarding `embed.js` for pages downloaded before the rename. |
+
+Every downloaded `index.html` loads Stando from the address it was downloaded
+from, so any address that ever served Stando must keep serving `embed.js`.
+
+### Rename the repository to `stando`
+
+This repository already points at `https://bredliplaku.com/stando/`, so work in
+this order:
+
+1. Rename the GitHub repository from `attendance` to `stando`, then push.
+2. Straight away, add two files to `attendance/` in the personal website
+   repository: your downloaded `index.html`, and this `embed.js`:
+
+   ```js
+   // Stando moved. Files downloaded earlier load this script; forward them.
+   const script = document.createElement('script');
+   script.src = 'https://bredliplaku.com/stando/embed.js';
+   script.onerror = () => document.getElementById('stando-load-error').hidden = false;
+   document.head.appendChild(script);
+   ```
+
+3. In Supabase, keep `https://bredliplaku.com/attendance/` in Redirect URLs and
+   add `https://bredliplaku.com/stando/` (or use `https://bredliplaku.com/**`).
+   Set the Site URL to `https://bredliplaku.com/stando/` and redeploy both
+   functions.
+
+The domain stays the same, so nothing else changes and nobody is signed out.
+
+### Move to a new domain later
+
+1. Publish Stando at the new address, such as `https://stando.al/`, and set
+   `APP_URL` in [js/website.js](js/website.js) to it.
+2. In Supabase, update the Site URL and Redirect URLs, set `STANDO_APP_URL`, and
+   keep `https://bredliplaku.com` in `STANDO_ALLOWED_ORIGINS`. Add the new domain
+   to the Google Cloud OAuth client.
+3. Point the forwarding `embed.js` at the new address, and keep one at every
+   earlier address, including `https://bredliplaku.com/stando/`.
+
+Sign-ins and unsynced attendance belong to each domain: sync every scanning
+device first. People then sign in again and trusted devices need approval again.
 
 ## Contributing
 

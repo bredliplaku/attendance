@@ -1,8 +1,9 @@
-// Published installation used by every downloaded index.html. Keep this URL stable.
-// Downloads always use this address, even when this script runs on another website.
+// Published installation used by every downloaded index.html. Downloads always use
+// this address, even when this script runs on another website. It is the only place
+// the client names it; before changing it, read "Addresses" in the README.
 (function () {
     'use strict';
-    const APP_URL = 'https://bredliplaku.com/attendance/';
+    const APP_URL = 'https://bredliplaku.com/stando/';
 
     function loaderHtml() {
         const loaderUrl = new URL('embed.js', APP_URL).href
@@ -63,14 +64,16 @@
         setTimeout(() => URL.revokeObjectURL(url), 60000);
     }
 
-    function addDownloadControl(container, { needsActivation = false } = {}) {
+    // Lecturers need the administrator to approve their website; global
+    // administrators approve websites themselves.
+    function addDownloadControl(container, { forGlobalAdmin = false } = {}) {
         if (!container || container.querySelector('.website-download')) return;
         const section = document.createElement('div');
         section.className = 'website-download';
         section.innerHTML = `
             <div class="website-download-copy">
                 <strong>Stando on your website</strong>
-                <p>${needsActivation ? 'Contact the administrator to activate your index.html.' : 'Upload this file to a folder on your website.'}</p>
+                <p>${forGlobalAdmin ? 'Upload it to a folder on any approved website.' : 'Contact the administrator to activate your index.html.'}</p>
                 <p class="website-download-error" role="status" hidden></p>
             </div>
             <button type="button" class="btn-blue btn-sm"><i class="fa-solid fa-download" aria-hidden="true"></i> Download index.html</button>`;
