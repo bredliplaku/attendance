@@ -5028,6 +5028,11 @@
     min-width: 0;
 }
 
+/* Messages are plain text; "\n" separates lines such as a list of form errors. */
+.in-page-notification-message {
+    white-space: pre-line;
+}
+
 /* --- Top bar: the photo + name chip opens Settings or the profile --- */
 .top-bar-user {
     display: inline-flex;

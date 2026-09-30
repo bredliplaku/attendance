@@ -198,7 +198,7 @@ async function formatAdminEmailsForCC(emails: string[]): Promise<string[]> {
   (data || []).forEach((row) => { if (row.email) nameMap[row.email.toLowerCase()] = row.name; });
   return emails.map((email) => {
     const name = nameMap[email.toLowerCase()];
-    return name ? `"${name}" <${email}>` : email;
+    return mailbox(name, email);
   });
 }
 
@@ -329,7 +329,7 @@ Deno.serve(async (req) => {
 
       await sendViaResend({
         to: await formatAdminEmailsForCC(notifyAdmins),
-        cc: [`"${reqRow.student_name}" <${reqRow.student_email}>`],
+        cc: [mailbox(reqRow.student_name, reqRow.student_email)],
         replyTo: mailbox(reqRow.student_name, reqRow.student_email),
         subject: `Permission Request for ${formattedCourseName}`,
         html: bodyHtml,
@@ -423,7 +423,7 @@ Deno.serve(async (req) => {
       }
 
       await sendViaResend({
-        to: [`"${reqRow.student_name}" <${reqRow.student_email}>`],
+        to: [mailbox(reqRow.student_name, reqRow.student_email)],
         cc: courseAdmins.length > 0 ? await formatAdminEmailsForCC(courseAdmins) : undefined,
         replyTo: callerMailbox,
         subject,
@@ -456,7 +456,7 @@ Deno.serve(async (req) => {
         </div>`;
 
       await sendViaResend({
-        to: [`"${name}" <${email}>`],
+        to: [mailbox(name, email)],
         replyTo: callerMailbox,
         subject: "Your Student ID Card Application has been Approved",
         html: bodyHtml,
@@ -484,7 +484,7 @@ Deno.serve(async (req) => {
         </div>`;
 
       await sendViaResend({
-        to: [`"${name}" <${email}>`],
+        to: [mailbox(name, email)],
         replyTo: callerMailbox,
         subject: "Your Student ID Card Application has been Rejected",
         html: bodyHtml,

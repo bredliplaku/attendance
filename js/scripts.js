@@ -851,7 +851,7 @@ async function showAbsenceHistoryDialog() {
         <div class="filter-container history-filter-bar">
             <div class="search filter-search">
                 <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
-                <input type="search" id="hist-search" class="filter-input" placeholder="Search..." aria-label="Search requests">
+                <input type="search" id="hist-search" class="filter-input" placeholder="Search name, course, date or reason..." aria-label="Search requests">
             </div>
             <select id="hist-filter-status" class="sort-dropdown" aria-label="Filter by status">
                 <option value="All">All</option>
@@ -896,15 +896,21 @@ async function showAbsenceHistoryDialog() {
         }
 
         const renderList = () => {
-            const searchText = dialog.querySelector('#hist-search').value.toLowerCase();
+            const searchText = dialog.querySelector('#hist-search').value.trim().toLowerCase();
             const statusFilter = dialog.querySelector('#hist-filter-status').value;
 
             const filtered = history.filter(req => {
-                const matchesText = (req.studentName.toLowerCase().includes(searchText) ||
-                    req.course.toLowerCase().includes(searchText));
+                const haystack = [req.studentName, req.studentEmail, req.course, String(req.course || '').replace(/_/g, ' '),
+                    req.absenceDate, req.reasonType, req.session].map(value => String(value || '').toLowerCase());
+                const matchesText = !searchText || haystack.some(value => value.includes(searchText));
                 const matchesStatus = statusFilter === 'All' || req.status === statusFilter;
                 return matchesText && matchesStatus;
             });
+
+            if (filtered.length === 0) {
+                container.innerHTML = `<div class="empty-logs">No requests match these filters.</div>`;
+                return;
+            }
 
             container.innerHTML = filtered.map(req => {
                 // Determine status color/icon
@@ -927,7 +933,7 @@ async function showAbsenceHistoryDialog() {
                     ${statusBadge}
                 </div>
                 <div style="font-size:0.9em; color:#666; display:flex; align-items:center;">
-                    ${escapeHtml(req.course.replace(/_/g, ' '))} ${sessionBadge} 
+                    ${escapeHtml(String(req.course || '').replace(/_/g, ' '))} ${sessionBadge}
                     <span style="margin:0 6px;">&bull;</span> 
                     ${escapeHtml(req.absenceDate)}
                 </div>
@@ -966,7 +972,7 @@ async function showAbsenceHistoryDialog() {
         dialog.querySelector('#hist-filter-status').addEventListener('change', renderList);
 
     } catch (e) {
-        dialog.querySelector('#history-list-container').innerHTML = `<div class="error-message">Failed to load history: ${e.message}</div>`;
+        dialog.querySelector('#history-list-container').innerHTML = `<div class="error-message">Failed to load history: ${escapeHtml(e.message)}</div>`;
     }
 }
 
@@ -998,11 +1004,13 @@ function renderTableSkeletons() {
     if (!tbody) return;
 
     let html = '';
-    // Generate 5 skeleton rows
+    // Five rows matching the table: Name, Date, Time and, for the course's admins, Actions.
+    const actionsCell = isAdminForCourse(currentCourse) ? '<td><span class="skeleton-bar short"></span></td>' : '';
+    const selectCell = isBulkMode ? '<td class="select-column"></td>' : '';
     for (let i = 0; i < 5; i++) {
         html += `
         <tr class="skeleton-row">
-            <td><span class="skeleton-bar medium"></span></td> ${isAdmin ? '<td><span class="skeleton-bar short"></span></td>' : ''} <td><span class="skeleton-bar short"></span></td> <td><span class="skeleton-bar medium"></span></td> ${isAdmin ? '<td><span class="skeleton-bar short"></span></td>' : ''} </tr>`;
+            ${selectCell}<td><span class="skeleton-bar medium"></span></td><td class="date-column"><span class="skeleton-bar short"></span></td><td><span class="skeleton-bar medium"></span></td>${actionsCell}</tr>`;
     }
     tbody.innerHTML = html;
 
@@ -1073,6 +1081,34 @@ function clearAllAppData() {
         // Refresh immediately if no cat
         window.location.reload();
     }
+}
+
+// Pending changes may belong to courses that are not loaded in this session.
+function hasUnsyncedLocalChanges() {
+    if (refreshPendingChanges()) return true;
+    const accountPrefix = LOGS_STORAGE_KEY + '_account_';
+    return Object.keys(localStorage).some(key => {
+        if (!key.startsWith(LOGS_STORAGE_KEY + '_')) return false;
+        try {
+            const data = JSON.parse(localStorage.getItem(key));
+            // Pre-account caches have no marker and are uploaded as pending.
+            return key.startsWith(accountPrefix) ? data?.pending === true : data?.logs?.length > 0;
+        } catch { return false; }
+    });
+}
+
+// Clearing local data also discards attendance that has not reached the server.
+function confirmClearAllAppData() {
+    const unsynced = hasUnsyncedLocalChanges();
+    showConfirmationDialog({
+        title: '<i class="fa-solid fa-bomb" style="color:var(--danger-color);"></i> Clear local data?',
+        message: unsynced
+            ? '<strong>This device has attendance changes that are not synced yet.</strong> Clearing now deletes them permanently. Cancel and sync first unless you are sure.<br><br>You will also be signed out.'
+            : 'This removes cached logs and preferences from this device and signs you out. Your data on the server is not affected.',
+        confirmText: unsynced ? 'Delete unsynced changes' : 'Clear',
+        isDestructive: true,
+        onConfirm: clearAllAppData
+    });
 }
 
 /**
@@ -1619,6 +1655,7 @@ function setupEventListeners() {
         header.addEventListener('click', () => {
             const sortKey = header.getAttribute('data-sort');
             currentSort = (currentSort === `${sortKey}-asc`) ? `${sortKey}-desc` : `${sortKey}-asc`;
+            logsCurrentPage = 1;
             localStorage.setItem('logs_sort', currentSort);
             sortSelect.value = currentSort;
 
@@ -1641,6 +1678,7 @@ function setupEventListeners() {
             const sortKey = header.getAttribute('data-sort');
             // Toggle direction or switch to the new sort key
             currentDbSort = (currentDbSort.startsWith(sortKey) && currentDbSort.endsWith('asc')) ? `${sortKey}-desc` : `${sortKey}-asc`;
+            dbCurrentPage = 1;
             localStorage.setItem('db_sort', currentDbSort);
             document.getElementById('db-sort-select').value = currentDbSort;
             updateDbSortIcons(); // We will create this function next
@@ -2158,7 +2196,7 @@ function showGlobalSettingsDialog() {
             avatarClickCount++;
             if (avatarClickCount === 5) {
                 profilePicContainer.innerHTML = `<div style="width:100%; height:100%; border-radius:50%; background:#f44336; display:flex; align-items:center; justify-content:center; color:white; font-size:2em;"><i class="fa-solid fa-bomb"></i></div>`;
-                profilePicContainer.onclick = () => { if (confirm("Clear local cache?")) clearAllAppData(); };
+                profilePicContainer.onclick = confirmClearAllAppData;
                 avatarClickCount = 0;
             }
         });
@@ -2403,30 +2441,6 @@ window.editStaffKey = (rowIndex, name, uid, email, role, googleName = '') => {
         email: email,
         role: role,
         googleName: googleName
-    });
-};
-
-window.deleteStaffKey = (rowIndex, name) => {
-    showConfirmationDialog({
-        title: "Revoke Access?",
-        message: `Are you sure you want to revoke key for <strong>${name}</strong>? They will no longer be able to log in via NFC.`,
-        confirmText: "Revoke",
-        isDestructive: true,
-        onConfirm: () => {
-            callWebApp('manageStaff_Admin', { actionType: 'delete', rowIndex }, 'POST')
-                .then(() => {
-                    // We must refresh the dialog data. 
-                    // Simplest way: close and reopen.
-                    document.querySelector('.dialog-backdrop').remove();
-                    showGlobalSettingsDialog();
-                    // We use a small timeout to let the dialog render before switching tabs
-                    setTimeout(() => {
-                        const tab = document.querySelector('.settings-tab-btn[data-target="sect-staff"]');
-                        if (tab) tab.click();
-                    }, 100);
-                })
-                .catch(err => showNotification('error', 'Error', err.message));
-        }
     });
 };
 
@@ -2855,18 +2869,7 @@ function showCourseEditorDialog(courseName, courseData = null) {
             const res = await callWebApp('saveCourseSettings_Admin', payload, 'POST');
             if (res.result === 'success') {
                 // Refresh the picker too, so restored and new courses are usable immediately.
-                try {
-                    const [info, courses] = await Promise.all([
-                        callWebApp('getCourseInfo'), callWebApp('getAvailableCourses')
-                    ]);
-                    courseInfoMap = info;
-                    availableCourses = Object.keys(courses).filter(name => !info[name]?.archived);
-                    courseDictionary = Object.fromEntries(availableCourses.map(name => [name, courses[name]]));
-                    courseIDMap = Object.fromEntries(Object.entries(info).map(([name, metadata]) => [name, metadata.eisId]));
-                    populateCourseButtons();
-                } catch (refreshError) {
-                    showNotification('warning', 'Refresh Needed', 'Course saved. Reload the page to refresh the course list.');
-                }
+                await refreshCoursePicker('Course saved.');
                 showNotification('success', 'Saved', 'Course updated.');
                 close();
                 document.querySelectorAll('.dialog-backdrop').forEach(el => el.remove());
@@ -2882,35 +2885,53 @@ function showCourseEditorDialog(courseName, courseData = null) {
     };
 
     if (!isNew && isGlobalAdmin) {
-        dialog.querySelector('#delete-course-btn').onclick = async (e) => {
-            if (confirm('Delete this course from settings?')) {
-                const btn = e.currentTarget;
-                const originalText = btn.innerHTML;
-
-                try {
-                    btn.disabled = true;
-                    btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Deleting...';
-
+        dialog.querySelector('#delete-course-btn').onclick = () => {
+            // The server deletes the course together with all of its attendance logs.
+            const logCount = courseData[courseName]?.logs?.length;
+            showConfirmationDialog({
+                title: `<i class="fa-solid fa-trash" style="color:var(--danger-color);"></i> Delete ${escapeHtml(cleanCourseName)}?`,
+                message: `This deletes the course <strong>and all of its attendance logs</strong>${logCount ? ` (${logCount} loaded)` : ''}. Export the logs first if you may need them. To hide a course but keep its records, archive it instead.<br><br>This cannot be undone.`,
+                confirmText: '<i class="fa-solid fa-trash"></i> Delete Course',
+                cancelText: '<i class="fa-solid fa-xmark"></i> Cancel',
+                isDestructive: true,
+                onConfirm: async () => {
                     await callWebApp('saveCourseSettings_Admin', { originalName: courseName, isDelete: true }, 'POST');
-
-                    showNotification('success', 'Deleted', 'Course removed.');
-
+                    await refreshCoursePicker('Course deleted.');
+                    showNotification('delete', 'Deleted', 'Course and its logs removed.');
                     close();
                     document.querySelectorAll('.dialog-backdrop').forEach(el => el.remove());
                     closeDialogMode();
-
                     showGlobalSettingsDialog();
-
-                } catch (err) {
-                    showNotification('error', 'Delete Failed', err.message);
-                    btn.disabled = false;
-                    btn.innerHTML = originalText;
                 }
-            }
+            });
         };
     }
 }
 
+
+// Reloads the course list behind the picker after a course is added, edited or deleted.
+async function refreshCoursePicker(savedMessage) {
+    try {
+        const [info, courses] = await Promise.all([
+            callWebApp('getCourseInfo'), callWebApp('getAvailableCourses')
+        ]);
+        courseInfoMap = info;
+        availableCourses = Object.keys(courses).filter(name => !info[name]?.archived);
+        courseDictionary = Object.fromEntries(availableCourses.map(name => [name, courses[name]]));
+        courseIDMap = Object.fromEntries(Object.entries(info).map(([name, metadata]) => [name, metadata.eisId]));
+        // A deleted or renamed course cannot stay selected; routing picks the next one.
+        if (currentCourse && !info[currentCourse]) {
+            if (!courseData[currentCourse]?.pending) delete courseData[currentCourse];
+            if (guestCourse === currentCourse) guestCourse = null;
+            currentCourse = '';
+            window.location.hash = '';
+            updateUI();
+        }
+        populateCourseButtons();
+    } catch (refreshError) {
+        showNotification('warning', 'Refresh Needed', `${savedMessage} Reload the page to refresh the course list.`);
+    }
+}
 
 // --- 3. Non-Global Admin Profile & Settings ---
 function showAdminProfileDialog() {
@@ -2977,7 +2998,7 @@ function showAdminProfileDialog() {
         avatarClickCount++;
         if (avatarClickCount === 5) {
             profilePicContainer.innerHTML = `<div style="width:100%; height:100%; border-radius:50%; background:#f44336; display:flex; align-items:center; justify-content:center; color:white; font-size:2em;"><i class="fa-solid fa-bomb"></i></div>`;
-            profilePicContainer.onclick = () => { if (confirm("Clear local cache?")) clearAllAppData(); };
+            profilePicContainer.onclick = confirmClearAllAppData;
             avatarClickCount = 0;
         }
     });
@@ -3091,7 +3112,7 @@ async function showStudentProfileDialog() {
         } else {
             // Build Cards with Clean Course Name (no EIS ID)
             const cardsHtml = requests.map(req => {
-                const statusClass = `status-${req.status.toLowerCase()}`;
+                const statusClass = `status-${String(req.status || 'pending').toLowerCase()}`;
                 const cleanCourse = getCleanCourseCode(req.course, courseInfoMap[req.course]?.eisId);
 
                 // Admin note logic
@@ -3269,6 +3290,7 @@ function updateDbSortIcons() {
 */
 function handleDbSortChange() {
     currentDbSort = document.getElementById('db-sort-select').value;
+    dbCurrentPage = 1;
     localStorage.setItem('db_sort', currentDbSort); // Save the choice
     updateDbSortIcons();
     updateDatabaseList();
@@ -3781,14 +3803,20 @@ async function showDirectEisExportDialog(prefilledDateStr = null) {
     const weekSelect = document.getElementById('export-week');
     for (let i = 1; i <= 14; i++) weekSelect.innerHTML += `<option value="${i}">Week ${i}</option>`;
     const dateInput = document.getElementById('export-date');
+    // EIS offers weeks 1–14; a value outside the options would leave the select blank.
+    const setWeek = week => { weekSelect.value = String(Math.min(Math.max(Number(week) || 1, 1), 14)); };
     if (prefilledDateStr) {
         const [day, month, year] = prefilledDateStr.split('-');
         dateInput.value = `${year}-${month}-${day}`;
-        if (courseMetadata) weekSelect.value = calculateWeekForDate(courseMetadata, new Date(dateInput.value)) || 1;
+        setWeek(courseMetadata ? calculateWeekForDate(courseMetadata, new Date(dateInput.value)) : 1);
     } else {
-        dateInput.value = courseMetadata ? getSuggestedDate(courseMetadata) : new Date().toISOString().split('T')[0];
-        weekSelect.value = courseMetadata ? calculateCurrentWeek(courseMetadata) : 1;
+        dateInput.value = courseMetadata ? getSuggestedDate(courseMetadata) : localDateString();
+        setWeek(courseMetadata ? calculateCurrentWeek(courseMetadata) : 1);
     }
+    // Picking another date moves the week with it.
+    dateInput.addEventListener('change', () => {
+        if (courseMetadata && dateInput.value) setWeek(calculateWeekForDate(courseMetadata, new Date(dateInput.value)));
+    });
 
     // --- HOURS LOGIC (Custom Toggle) ---
     const hoursInput = document.getElementById('hours-custom-input');
@@ -3831,7 +3859,7 @@ async function showDirectEisExportDialog(prefilledDateStr = null) {
         const selectedDateStr = dateInput.value;
 
         logsForCourse.forEach(log => {
-            const logDateStr = new Date(log.timestamp).toISOString().split('T')[0];
+            const logDateStr = localDateString(new Date(log.timestamp));
             if (logDateStr !== selectedDateStr) return;
             const logSession = log.session || 'Default';
             let isMatch = (logSession === targetSession);
@@ -4583,13 +4611,13 @@ function showRegisterUIDDialog() {
                     console.error('Script Error:', errorMessage);
                     showNotification('error', 'Submission Failed', errorMessage);
                     submitBtn.disabled = false;
-                    submitBtn.innerHTML = 'Submit';
+                    submitBtn.innerHTML = '<i class="fa-solid fa-check"></i> Submit';
                 }
             }).catch(err => {
                 console.error('API Error:', err);
                 showNotification('error', 'Submission Failed', `A network error occurred: ${err.message}`);
                 submitBtn.disabled = false;
-                submitBtn.innerHTML = 'Submit';
+                submitBtn.innerHTML = '<i class="fa-solid fa-check"></i> Submit';
             });
     });
 
@@ -4757,13 +4785,14 @@ function showRegisterUIDDialogWithPrefill(prefillUid) {
  * @returns {object | null} A match object if found, or null.
  */
 function findDuplicateInDatabase(entry) {
-    const norm = (str) => (str || '').toString().normalize("NFD").replace(/[\u00e0-\u00f6]/g, "").toLowerCase().trim();
+    const norm = (str) => (str || '').toString().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
     const newUid = norm(entry.uid);
     const newHwUid = norm(entry.hardwareUid);
     const newName = norm(entry.name);
     const newEmail = norm(entry.email);
 
     for (const [dbKey, studentData] of Object.entries(databaseMap)) {
+        if (studentData.isStaff) continue; // Staff cards are managed in Settings.
         const existingUids = (studentData.uids || []).map(norm);
         const existingHwUids = (studentData.hardware_uids || []).map(norm);
         const existingName = norm(studentData.name);
@@ -4917,9 +4946,9 @@ function showDuplicateWarningForNewEntry(newData, duplicates, onCompleteCallback
         </div>
     </div>
     <div class="dialog-actions">
-        <button id="cancel-duplicate-btn" class="btn-red">Cancel</button>
-        <button id="add-anyway-btn" class="btn-orange">Add as Separate</button>
-        <button id="apply-btn" class="btn-green">Apply Changes</button>
+        <button id="cancel-duplicate-btn" class="btn-red"><i class="fa-solid fa-xmark"></i> Cancel</button>
+        <button id="add-anyway-btn" class="btn-orange"><i class="fa-solid fa-user-plus"></i> Add as Separate</button>
+        <button id="apply-btn" class="btn-green"><i class="fa-solid fa-floppy-disk"></i> Apply Changes</button>
     </div>`;
 
     dialogBackdrop.appendChild(dialog);
@@ -4946,68 +4975,77 @@ function showDuplicateWarningForNewEntry(newData, duplicates, onCompleteCallback
     updateButtonStates();
     document.getElementById('cancel-duplicate-btn').addEventListener('click', closeDialog);
 
-    addAnywayBtn.addEventListener('click', () => {
-        const existingKeys = Object.keys(databaseMap).map(Number);
-        const newDbKey = existingKeys.length > 0 ? Math.max(...existingKeys) + 1 : 1;
-        const studentId = newStudentId !== '—' ? newStudentId : (newData.uid || '');
-        const hwUid = newHardwareUid !== '—' ? newHardwareUid : (newData.hardwareUid || '');
-        databaseMap[newDbKey] = {
-            name: newData.name,
-            email: newData.email,
-            uids: studentId ? [studentId] : [],
-            hardware_uids: hwUid ? [hwUid] : []
-        };
-        showNotification('success', 'Entry Added', `Added ${newData.name} as a separate entry.`);
-        onCompleteCallback(); closeDialog();
-    });
+    const studentId = newStudentId !== '—' ? newStudentId : (newData.uid || '');
+    const hwUid = newHardwareUid !== '—' ? newHardwareUid : (newData.hardwareUid || '');
 
-    applyBtn.addEventListener('click', () => {
-        const existingEntryKey = existing.index;
-        const existingEntryData = databaseMap[existingEntryKey];
-        if (!existingEntryData) { showNotification('error', 'Error', 'Could not find existing entry.'); closeDialog(); return; }
+    // Each choice writes only the one student it affects, then reloads the list
+    // so the table and scan lookups use the server's ids.
+    const runAction = async (button, action) => {
+        const idleLabel = button.innerHTML;
+        addAnywayBtn.disabled = true;
+        applyBtn.disabled = true;
+        button.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Saving...';
+        try {
+            await action();
+            invalidateDatabaseCache();
+            await fetchDatabaseFromSheet().catch(error => console.warn('Could not reload the student list:', error));
+            onCompleteCallback();
+            closeDialog();
+        } catch (error) {
+            showNotification('error', 'Save Failed', error.message || 'Please try again.');
+            button.innerHTML = idleLabel;
+            updateButtonStates();
+        }
+    };
+
+    addAnywayBtn.addEventListener('click', () => runAction(addAnywayBtn, async () => {
+        await callWebApp('addEntryToDatabase_Admin', {
+            name: newData.name, email: newData.email, uid: studentId, hardwareUid: hwUid
+        });
+        showNotification('success', 'Entry Added', `Added ${newData.name} as a separate entry.`);
+    }));
+
+    applyBtn.addEventListener('click', () => runAction(applyBtn, async () => {
+        const existingEntryData = databaseMap[existing.index];
+        if (!existingEntryData) throw new Error('The existing entry is no longer in the list. Reload and try again.');
 
         const nameCheck = dialog.querySelector('#replace-name-check');
         const emailCheck = dialog.querySelector('#replace-email-check');
         const uidSelect = dialog.querySelector('#uid-action-select');
+        const update = { dbKey: existing.index };
 
-        if (nameCheck && nameCheck.checked) existingEntryData.name = newData.name;
-        if (emailCheck && emailCheck.checked) existingEntryData.email = newData.email;
-        if (uidSelect) {
-            const studentId = newStudentId !== '—' ? newStudentId : (newData.uid || '');
-            const hwUid = newHardwareUid !== '—' ? newHardwareUid : (newData.hardwareUid || '');
-
-            if (uidSelect.value === 'merge') {
-                existingEntryData.uids = existingEntryData.uids || [];
-                existingEntryData.hardware_uids = existingEntryData.hardware_uids || [];
-                if (studentId && !existingEntryData.uids.includes(studentId)) {
-                    existingEntryData.uids.push(studentId);
-                }
-                if (hwUid && !existingEntryData.hardware_uids.includes(hwUid)) {
-                    existingEntryData.hardware_uids.push(hwUid);
-                }
-            } else if (uidSelect.value === 'replace') {
-                existingEntryData.uids = studentId ? [studentId] : [];
-                existingEntryData.hardware_uids = hwUid ? [hwUid] : [];
-            }
+        if (nameCheck && nameCheck.checked) update.name = newData.name;
+        if (emailCheck && emailCheck.checked) update.email = newData.email;
+        if (uidSelect && uidSelect.value === 'merge') {
+            const uids = [...(existingEntryData.uids || [])];
+            const hardwareUids = [...(existingEntryData.hardware_uids || [])];
+            if (studentId && !uids.includes(studentId)) uids.push(studentId);
+            if (hwUid && !hardwareUids.includes(hwUid)) hardwareUids.push(hwUid);
+            Object.assign(update, { uids, hardwareUids });
+        } else if (uidSelect && uidSelect.value === 'replace') {
+            Object.assign(update, { uids: studentId ? [studentId] : [], hardwareUids: hwUid ? [hwUid] : [] });
         }
-        showNotification('success', 'Entry Updated', `Updated details for ${existingEntryData.name}.`);
-        onCompleteCallback(); closeDialog();
-    });
+
+        await callWebApp('updateStudentInDatabase_Admin', update);
+        showNotification('success', 'Entry Updated', `Updated details for ${update.name || existingEntryData.name}.`);
+    }));
 }
 
 /**
  * Shows an editable dialog to approve a registration with loading feedback.
  */
 function showApproveDialog(registration) {
-    const norm = (str) => (str || '').toString().normalize("NFD").replace(/[\u00e0-\u00f6]/g, "").toLowerCase().trim();
+    const norm = (str) => (str || '').toString().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
     const newUid = norm(registration.uid);
     const newName = norm(registration.name);
     const newEmail = norm(registration.email);
 
     let match = null;
 
-    // Iterate through the local database to find a match
+    // Iterate through the local database to find a match. Staff cards are
+    // managed in Settings and are not students that a registration can update.
     for (const [dbKey, studentData] of Object.entries(databaseMap)) {
+        if (studentData.isStaff) continue;
         const existingUids = (studentData.uids || []).map(norm);
         const existingHwUids = (studentData.hardware_uids || []).map(norm);
         const existingName = norm(studentData.name);
@@ -5021,7 +5059,8 @@ function showApproveDialog(registration) {
             uid: (studentData.uids || []).join(', '),
             hardwareUid: (studentData.hardware_uids || (studentData.uids ? studentData.uids.map(convertExternalIdToUid).filter(Boolean) : [])).join(', '),
             email: studentData.email || '',
-            rowIndex: parseInt(dbKey) + 1 // Approximate rowIndex for consistency
+            // The student's id: approveRegistration updates students where id = rowIndex.
+            rowIndex: parseInt(dbKey, 10)
         };
 
         // Priority 1: UID / ID Match
@@ -5119,6 +5158,7 @@ function showFinalApprovalDialog(registration) {
         if (!isValidEmail(finalEmail)) { showInputError(emailInput, 'A valid email is required.'); isValid = false; }
         if (!isValid) return;
 
+        const idleLabel = confirmBtn.innerHTML;
         confirmBtn.disabled = true; confirmBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Approving...';
         const finalData = {
             action: 'approveRegistration',
@@ -5130,13 +5170,13 @@ function showFinalApprovalDialog(registration) {
             email: finalEmail,
             rowNumber: registration.rowNumber
         };
-        if (!currentCourse) return;
         callWebApp('approveRegistration', finalData, 'POST').then(result => {
             if (result && result.result === 'success') {
                 showNotification('success', 'Approved!', `${finalData.name} has been added to the database.`);
-                invalidateDatabaseCache(); refreshAdminViews(); closeDialog();
+                notifyIfEmailFailed(result, finalData.email);
+                refreshDatabaseAfterApproval(); refreshAdminViews(); closeDialog();
             } else { throw new Error(result ? result.message : 'Approval failed.'); }
-        }).catch(err => { showNotification('error', 'Approval Failed', err.message); confirmBtn.disabled = false; confirmBtn.innerHTML = 'Approve'; });
+        }).catch(err => { showNotification('error', 'Approval Failed', err.message); confirmBtn.disabled = false; confirmBtn.innerHTML = idleLabel; });
     });
 }
 
@@ -5305,18 +5345,19 @@ function showDuplicateWarningDialog(newData, duplicates) {
     // "Add as Separate" button listener
     addAnywayBtn.addEventListener('click', (e) => {
         const button = e.currentTarget;
+        const idleLabel = button.innerHTML;
         button.disabled = true;
         button.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Processing...`;
         const studentId = newStudentId !== '—' ? newStudentId : (newData.uid || '');
         const hwUid = newHardwareUid !== '—' ? newHardwareUid : (newData.hardwareUid || '');
         const payload = { ...newData, approvalMode: 'add_new_separate', uid: studentId, hardwareUid: hwUid, hardware_uid: hwUid };
-        if (!currentCourse) return;
         callWebApp('approveRegistration', payload, 'POST').then(result => {
             if (result && result.result === 'success') {
                 showNotification('success', 'Action Complete', `Registration for ${newData.name} has been processed.`);
-                invalidateDatabaseCache(); refreshAdminViews(); closeDialog();
+                notifyIfEmailFailed(result, newData.email);
+                refreshDatabaseAfterApproval(); refreshAdminViews(); closeDialog();
             } else { throw new Error(result ? result.message : 'Action failed'); }
-        }).catch(err => { showNotification('error', 'Action Failed', err.message); button.disabled = false; button.innerHTML = 'Add as Separate'; });
+        }).catch(err => { showNotification('error', 'Action Failed', err.message); button.disabled = false; button.innerHTML = idleLabel; });
     });
 
     replaceBtn.addEventListener('click', (e) => {
@@ -5332,13 +5373,15 @@ function showDuplicateWarningDialog(newData, duplicates) {
         const studentId = newStudentId !== '—' ? newStudentId : (newData.uid || '');
         const hwUid = newHardwareUid !== '—' ? newHardwareUid : (newData.hardwareUid || '');
         const payload = { ...newData, action: 'approveRegistration', approvalMode: 'custom_replace', duplicateRowIndex: existing.rowIndex, updates: updates, uid: studentId, hardwareUid: hwUid, hardware_uid: hwUid };
+        const idleLabel = button.innerHTML;
         button.disabled = true; button.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Approving...`;
         callWebApp('approveRegistration', payload, 'POST').then(result => {
             if (result && result.result === 'success') {
                 showNotification('success', 'Action Complete', 'The entry has been updated.');
-                invalidateDatabaseCache(); refreshAdminViews(); closeDialog();
+                notifyIfEmailFailed(result, newData.email);
+                refreshDatabaseAfterApproval(); refreshAdminViews(); closeDialog();
             } else { throw new Error(result ? result.message : 'Action failed'); }
-        }).catch(err => { showNotification('error', 'Action Failed', err.message); button.disabled = false; button.innerHTML = 'Replace Selected'; });
+        }).catch(err => { showNotification('error', 'Action Failed', err.message); button.disabled = false; button.innerHTML = idleLabel; });
     });
 }
 
@@ -6277,6 +6320,8 @@ function showRequestPermissionDialog() {
         let errors = [];
         if (!course) errors.push("Select a course.");
         if (!date) errors.push("Select a date.");
+        // min/max only limit the picker; a typed date can fall outside them.
+        else if (date < minDateStr || date > maxDateStr) errors.push("Choose a date from the last 2 working days up to 7 working days ahead.");
         if (hours.length === 0) errors.push("Select at least one hour.");
         if (!selectedReason) errors.push("Select a reason.");
         if (!captchaSolved) errors.push("Please solve the verification puzzle.");
@@ -6308,7 +6353,7 @@ function showRequestPermissionDialog() {
         }
 
         if (errors.length > 0) {
-            showNotification('warning', 'Missing Info', errors.join('<br>'));
+            showNotification('warning', 'Missing Info', errors.join('\n'));
             return;
         }
 
@@ -6341,7 +6386,7 @@ function showRequestPermissionDialog() {
             } else throw new Error(res.message);
         } catch (e) {
             showNotification('error', 'Error', e.message);
-            submitBtn.disabled = false; submitBtn.innerHTML = 'Submit';
+            submitBtn.disabled = false; submitBtn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Submit';
         }
     }
 
@@ -6445,6 +6490,7 @@ function showApproveAbsenceDialog(data) {
 
 
         // --- 5. Show Loading State ---
+        const idleLabel = confirmBtn.innerHTML;
         confirmBtn.disabled = true;
         cancelBtn.disabled = true;
         confirmBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Approving...';
@@ -6462,6 +6508,7 @@ function showApproveAbsenceDialog(data) {
             .then(result => {
                 if (result && result.result === 'success') {
                     showNotification('success', 'Approved', `Permission for ${data.studentName} approved.`);
+                    notifyIfEmailFailed(result, data.studentEmail);
                     refreshAdminViews();
 
                     if (result.newLogs && result.newLogs.length > 0) {
@@ -6483,7 +6530,7 @@ function showApproveAbsenceDialog(data) {
                 showNotification('error', 'Approval Failed', err.message);
                 confirmBtn.disabled = false;
                 cancelBtn.disabled = false;
-                confirmBtn.innerHTML = 'Approve';
+                confirmBtn.innerHTML = idleLabel;
             });
     });
 }
@@ -6534,6 +6581,7 @@ function showRejectAbsenceDialog(data) {
     confirmBtn.addEventListener('click', () => {
         const message = messageArea.value;
 
+        const idleLabel = confirmBtn.innerHTML;
         confirmBtn.disabled = true;
         cancelBtn.disabled = true;
         confirmBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Sending...';
@@ -6547,7 +6595,8 @@ function showRejectAbsenceDialog(data) {
         }, 'POST')
             .then(result => {
                 if (result && result.result === 'success') {
-                    showNotification('success', 'Rejected', `Rejection email sent to ${data.studentName}.`);
+                    if (result.emailFailed) notifyIfEmailFailed(result, data.studentEmail);
+                    else showNotification('success', 'Rejected', `Rejection email sent to ${data.studentName}.`);
                     refreshAdminViews();
                     closeDialog();
                 } else {
@@ -6558,7 +6607,7 @@ function showRejectAbsenceDialog(data) {
                 showNotification('error', 'Rejection Failed', err.message);
                 confirmBtn.disabled = false;
                 cancelBtn.disabled = false;
-                confirmBtn.innerHTML = 'Reject';
+                confirmBtn.innerHTML = idleLabel;
             });
     });
 }
@@ -6634,15 +6683,16 @@ function showRejectDialog(registration) {
         const message = messageTextarea.value.trim();
         if (!message) { showInputError(messageTextarea, 'Rejection message cannot be empty.'); return; }
 
+        const idleLabel = confirmBtn.innerHTML;
         confirmBtn.disabled = true; confirmBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Rejecting...';
         const data = { message: message, email: registration.email, rowNumber: registration.rowNumber, name: registration.name };
-        if (!currentCourse) return;
         callWebApp('rejectRegistration', data, 'POST').then(result => {
             if (result && result.result === 'success') {
-                showNotification('success', 'Rejected', `Rejection email sent to ${registration.name}.`);
+                if (result.emailFailed) notifyIfEmailFailed(result, registration.email);
+                else showNotification('success', 'Rejected', `Rejection email sent to ${registration.name}.`);
                 refreshAdminViews(); closeDialog();
             } else { throw new Error(result ? result.message : 'Rejection failed.'); }
-        }).catch(err => { showNotification('error', 'Rejection Failed', err.message); confirmBtn.disabled = false; confirmBtn.innerHTML = 'Reject'; });
+        }).catch(err => { showNotification('error', 'Rejection Failed', err.message); confirmBtn.disabled = false; confirmBtn.innerHTML = idleLabel; });
     });
 }
 
@@ -6660,6 +6710,33 @@ async function invokeSendEmail(body) {
     const { data, error } = await supabaseClient.functions.invoke('send-email', { body });
     if (error) throw new Error('Email sending failed: ' + error.message);
     if (data && data.result === 'error') throw new Error('Email sending failed: ' + data.message);
+}
+
+// Emails follow a change that is already saved. A failed email must not report
+// the change as failed, or a retry would repeat it (a second student, a second approval).
+async function trySendEmail(body) {
+    try {
+        await invokeSendEmail(body);
+        return false;
+    } catch (error) {
+        console.warn('Email not sent:', error);
+        return true;
+    }
+}
+
+// The action succeeded; only its email did not go out.
+function notifyIfEmailFailed(result, recipient) {
+    if (!result?.emailFailed) return;
+    showNotification('warning', 'Email Not Sent',
+        `The change was saved, but the email to ${recipient || 'the student'} could not be sent. Let them know directly.`, 10000);
+}
+
+// A newly approved card is recognised on the next scan, not only after a reload.
+function refreshDatabaseAfterApproval() {
+    invalidateDatabaseCache();
+    fetchDatabaseFromSheet()
+        .then(() => { window.buildUIDToPrimaryUidMap(); updateUI(); })
+        .catch(error => console.warn('Could not reload the student list:', error));
 }
 
 // Opens an attachment: old rows hold full Drive URLs, new rows hold a Storage path
@@ -7150,7 +7227,7 @@ async function callSupabase(action, payload = {}) {
                 name: payload.deviceName,
                 device_id: payload.deviceId,
                 owner: await sbSessionEmail(),
-                registered_at: new Date().toISOString().split('T')[0]
+                registered_at: localDateString()
             }));
             return { result: 'success' };
         }
@@ -7268,12 +7345,12 @@ async function callSupabase(action, payload = {}) {
                 p_logs: newLogs
             }));
 
-            await invokeSendEmail({
+            const emailFailed = await trySendEmail({
                 template: 'absence_approved',
                 request_id: requestID, approvedHours, originalHours, customMessage
             });
 
-            return { result: 'success', message: `Approved ${newLogs.length} logs.`, newLogs };
+            return { result: 'success', message: `Approved ${newLogs.length} logs.`, newLogs, emailFailed };
         }
 
         case 'rejectAbsenceRequest': {
@@ -7283,13 +7360,13 @@ async function callSupabase(action, payload = {}) {
                 admin_notes: payload.rejectionMessage || `Rejected by ${adminEmail}`
             }).eq('request_id', payload.requestID));
 
-            await invokeSendEmail({
+            const emailFailed = await trySendEmail({
                 template: 'absence_rejected',
                 request_id: payload.requestID,
                 rejectionMessage: payload.rejectionMessage || ''
             });
 
-            return { result: 'success', message: 'Request rejected and email sent.' };
+            return { result: 'success', message: 'Request rejected.', emailFailed };
         }
 
         case 'approveRegistration': {
@@ -7341,26 +7418,24 @@ async function callSupabase(action, payload = {}) {
                 sbUnwrap(await supabaseClient.from('registrations').delete().eq('id', regId));
             }
 
-            await invokeSendEmail({
+            const emailFailed = await trySendEmail({
                 template: 'registration_approved',
                 name: payload.name || '', email: payload.email || ''
             });
 
-            return { result: 'success', message: 'Registration approved and processed' };
+            return { result: 'success', message: 'Registration approved and processed', emailFailed };
         }
 
         case 'rejectRegistration': {
             sbUnwrap(await supabaseClient.from('registrations').delete()
                 .eq('id', parseInt(payload.rowNumber)));
 
-            if (payload.email && payload.message) {
-                await invokeSendEmail({
-                    template: 'registration_rejected',
-                    name: payload.name || '', email: payload.email, message: payload.message
-                });
-            }
+            const emailFailed = !!(payload.email && payload.message) && await trySendEmail({
+                template: 'registration_rejected',
+                name: payload.name || '', email: payload.email, message: payload.message
+            });
 
-            return { result: 'success', message: 'Registration rejected' };
+            return { result: 'success', message: 'Registration rejected', emailFailed };
         }
 
         default:
@@ -7389,17 +7464,15 @@ function handleAuthClick(e) {
  * Get course metadata for the specified course
  */
 function getCourseMetadata(course) {
-    if (!course) {
-        return null;
-    }
+    // courseInfoMap is a top-level let, so it is not a property of window.
+    return (course && courseInfoMap[course]) || null;
+}
 
-    // Check if the global courseInfoMap exists and contains this course
-    if (window.courseInfoMap && window.courseInfoMap[course]) {
-        return window.courseInfoMap[course];
-    }
-
-    // No metadata found
-    return null;
+// YYYY-MM-DD in the device's time zone. toISOString() gives the UTC date,
+// which is the previous day for scans shortly after midnight in Albania.
+function localDateString(date = new Date()) {
+    const pad = n => String(n).padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
 /**
@@ -7523,8 +7596,12 @@ async function handleManualRefresh(buttonId) {
                 if (currentCourse && !availableCourses.includes(currentCourse)) {
                     // If the current course is no longer available, switch to the first available one
                     currentCourse = availableCourses.length > 0 ? availableCourses[0] : null;
-                    if (currentCourse) window.location.hash = currentCourse; // Update URL hash if needed
-                    localStorage.setItem('last_active_course', currentCourse);
+                    if (currentCourse) {
+                        window.location.hash = currentCourse;
+                        localStorage.setItem('last_active_course', currentCourse);
+                    } else {
+                        localStorage.removeItem('last_active_course');
+                    }
                 }
 
                 // 2. Repopulate the Course Buttons
@@ -7668,7 +7745,7 @@ function clearInputError(inputElement) {
 function getSuggestedDate(metadata) {
     // Current date is a good default
     const today = new Date();
-    const todayStr = today.toISOString().split('T')[0];
+    const todayStr = localDateString(today);
 
     // If we're on a weekend, suggest the previous Friday
     const dayOfWeek = today.getDay(); // 0 = Sunday, 6 = Saturday
@@ -7676,7 +7753,7 @@ function getSuggestedDate(metadata) {
         const friday = new Date(today);
         // Go back to the previous Friday
         friday.setDate(today.getDate() - (dayOfWeek === 0 ? 2 : 1));
-        return friday.toISOString().split('T')[0];
+        return localDateString(friday);
     }
 
     return todayStr;
@@ -8310,8 +8387,9 @@ async function syncDatabaseToSheet() {
     }
 
     try {
-        // databaseMap is the global variable holding the frontend state
-        const resultData = await callWebApp('syncDatabase_Admin', { databaseData: databaseMap }, 'POST');
+        // Staff entries are keyed by name and live in the staff table, not students.
+        const students = Object.fromEntries(studentEntries());
+        const resultData = await callWebApp('syncDatabase_Admin', { databaseData: students }, 'POST');
 
         if (resultData && resultData.result === 'success') {
             console.log(`Successfully synced ${resultData.count} database entries via script.`);
@@ -8333,8 +8411,8 @@ async function syncDatabaseToSheet() {
  * Update sort icons in the table headers.
  */
 function updateSortIcons() {
-    // Reset all sort icons
-    document.querySelectorAll('.sort-icon').forEach(icon => {
+    // Reset the logs table's sort icons (the Student List has its own).
+    document.querySelectorAll('.logs-table .sort-icon').forEach(icon => {
         const i = document.createElement('i');
         i.className = 'sort-icon fa-solid fa-sort';
         icon.replaceWith(i);
@@ -8342,7 +8420,7 @@ function updateSortIcons() {
 
     // Set sort icon for current sort field
     const [field, direction] = currentSort.split('-');
-    const header = document.querySelector(`.sortable[data-sort="${field}"]`);
+    const header = document.querySelector(`.logs-table .sortable[data-sort="${field}"]`);
 
     if (header) {
         const icon = header.querySelector('.sort-icon');
@@ -8359,6 +8437,7 @@ function updateSortIcons() {
  */
 function handleFilterChange() {
     filter = filterInput.value.toLowerCase();
+    logsCurrentPage = 1;
     updateLogsList();
 }
 
@@ -8367,6 +8446,7 @@ function handleFilterChange() {
  */
 function handleSortChange() {
     currentSort = sortSelect.value;
+    logsCurrentPage = 1;
     localStorage.setItem('logs_sort', currentSort);
     const logsTable = document.querySelector('.logs-table'); // Get the table
 
@@ -8386,6 +8466,7 @@ function handleSortChange() {
  */
 function handleDbFilterChange() {
     dbFilter = dbFilterInput.value.toLowerCase();
+    dbCurrentPage = 1;
     updateDatabaseList();
 }
 
@@ -8528,21 +8609,10 @@ function showAddEntryDialog() {
         // Check for local duplicates first
         const match = findDuplicateInDatabase(submissionData);
         if (match) {
-            // Duplicate found. Define the optimistic-UI callback for the warning dialog.
+            // The warning dialog saves the chosen change and reloads the list.
             const completeAction = () => {
-                // This callback will be triggered by the warning dialog *after* it updates
-                // the local databaseMap.
                 window.buildUIDToPrimaryUidMap();
-                updateUI(); // Refresh UI immediately
-
-                // Now, sync the *entire* database in the background.
-                if (isOnline) {
-                    // This now calls the fast function
-                    syncDatabaseToSheet().catch(err => {
-                        console.error("Background sync failed:", err);
-                        showNotification('error', 'Sync Failed', 'Changes saved locally but failed to sync.');
-                    });
-                }
+                updateUI();
             };
 
             showDuplicateWarningForNewEntry(submissionData, [match.duplicate], completeAction);
@@ -8575,13 +8645,13 @@ function showAddEntryDialog() {
         } catch (error) {
             showNotification('error', 'Submission Failed', error.message);
             confirmBtn.disabled = false;
-            confirmBtn.innerHTML = 'Add Student';
+            confirmBtn.innerHTML = '<i class="fa-solid fa-plus"></i> Add Student';
         }
     });
 }
 
 function editDatabaseEntry(dbKey) {
-    if (!isAdmin || !databaseMap[dbKey]) return;
+    if (!isAdmin || !databaseMap[dbKey] || databaseMap[dbKey].isStaff) return;
 
     openDialogMode();
 
@@ -8790,7 +8860,7 @@ function editDatabaseEntry(dbKey) {
  * @param {string} uid - The UID of the entry to delete.
  */
 function deleteDatabaseEntry(dbKey) {
-    if (!isAdmin) return;
+    if (!isAdmin || databaseMap[dbKey]?.isStaff) return;
     const name = databaseMap[dbKey]?.name;
     if (!name) return;
 
@@ -8942,7 +9012,7 @@ function showConfirmationDialog({ title, message, confirmText = 'Confirm', cance
             if (typeof onConfirm === 'function') await onConfirm();
             closeConfirmDialog();
         } catch (error) {
-            showNotification('error', 'Action Failed', escapeHtml(error.message || 'Please try again.'));
+            showNotification('error', 'Action Failed', error.message || 'Please try again.');
             confirmBtn.disabled = false;
             cancelBtn.disabled = false;
         }
@@ -8963,19 +9033,26 @@ function clearDatabase() {
     if (!isAdmin) return;
 
     showConfirmationDialog({
-        title: 'Wipe the ENTIRE Database?',
-        message: 'This will remove all UID-name mappings permanently. This action cannot be undone.',
-        confirmText: 'Delete',
+        title: 'Delete every student?',
+        message: 'This removes every student and their card IDs from the Student List. Attendance logs are kept, but they will show as unknown cards. Staff are not affected. This cannot be undone.',
+        confirmText: 'Delete all',
         isDestructive: true,
-        onConfirm: () => {
-            databaseMap = {};
-            // Sync to sheet if online
-            if (isOnline && isSignedIn) {
-                syncDatabaseToSheet().catch(err => console.error('Error syncing database:', err));
-                refreshAdminViews();
+        onConfirm: async () => {
+            if (!isOnline || !isSignedIn) throw new Error('Connect to the internet to change the student list.');
+            // Keep staff so their scans still show a name; the dialog reports a failure.
+            const staffOnly = Object.fromEntries(Object.entries(databaseMap).filter(([, data]) => data?.isStaff));
+            const previous = databaseMap;
+            databaseMap = staffOnly;
+            try {
+                await syncDatabaseToSheet();
+            } catch (error) {
+                databaseMap = previous;
+                throw error;
+            } finally {
+                window.buildUIDToPrimaryUidMap();
+                updateUI();
             }
-            updateUI();
-            showNotification('success', 'Database Cleared', 'All database entries have been removed.');
+            showNotification('delete', 'Students Deleted', 'The student list is now empty.');
         }
     });
 }
@@ -9000,7 +9077,7 @@ function showAddLogEntryDialog() {
     dialog.setAttribute('aria-modal', 'true');
 
     const now = new Date();
-    const formattedDate = now.toISOString().split('T')[0];
+    const formattedDate = localDateString(now);
     const formattedTime = now.toTimeString().split(' ')[0].substring(0, 5);
 
     // Prepare Session Toggles
@@ -9068,8 +9145,8 @@ function showAddLogEntryDialog() {
 
     </div>
     <div class="dialog-actions">
-        <button id="cancel-manual-btn" class="btn-red">Cancel</button>
-        <button id="save-manual-log-btn" class="btn-green" disabled>Add Entry</button>
+        <button id="cancel-manual-btn" class="btn-red"><i class="fa-solid fa-xmark"></i> Cancel</button>
+        <button id="save-manual-log-btn" class="btn-green" disabled><i class="fa-solid fa-plus"></i> Add Entry</button>
     </div>`;
 
     dialogBackdrop.appendChild(dialog);
@@ -9164,6 +9241,11 @@ function showAddLogEntryDialog() {
 
         const manualDate = document.getElementById('manual-date').value;
         const manualTime = document.getElementById('manual-time').value;
+        const timestamp = new Date(`${manualDate}T${manualTime}:00`).getTime();
+        if (!manualDate || !manualTime || !Number.isFinite(timestamp)) {
+            showNotification('warning', 'Missing Date or Time', 'Choose the date and time of the entry.');
+            return;
+        }
 
         let manualSession = 'Default';
         const sessionInput = document.getElementById('manual-selected-session');
@@ -9171,7 +9253,7 @@ function showAddLogEntryDialog() {
 
         let newLog = {
             uid: selectedUid,
-            timestamp: new Date(`${manualDate}T${manualTime}:00`).getTime(),
+            timestamp,
             id: Date.now() + Math.random().toString(36).substring(2, 11),
             manual: true,
             session: manualSession
@@ -9223,7 +9305,7 @@ function showEditLogDialog(group) {
     group.originalLogs.sort((a, b) => a.timestamp - b.timestamp);
     const firstLog = group.originalLogs[0];
     const commonDateObj = new Date(firstLog.timestamp);
-    const formattedDate = commonDateObj.toISOString().split('T')[0];
+    const formattedDate = localDateString(commonDateObj);
 
     // --- Robustly determine Student Data, UID (Hardware), and ID (Converted) ---
     const dbKey = group.dbKey || lookupPrimaryUid(group.uid) || (databaseMap[group.uid] ? group.uid : null);
@@ -9420,10 +9502,23 @@ function showEditLogDialog(group) {
 
     // SAVE LOGIC
     document.getElementById('save-edit-log-btn').addEventListener('click', () => {
-        const nameInput = document.getElementById('edit-name');
-        const newDateStr = document.getElementById('edit-date').value;
-        const newName = nameInput.value.trim();
+        const dateInput = document.getElementById('edit-date');
+        const newDateStr = dateInput.value;
         const logsForCurrentCourse = courseData[currentCourse].logs;
+
+        // An empty date or time would store an invalid timestamp.
+        clearInputError(dateInput);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(newDateStr)) {
+            showInputError(dateInput, 'Choose a date.');
+            return;
+        }
+        const emptyTime = [...dialog.querySelectorAll('.timestamp-edit-group:not(.deleted) .timestamp-time')]
+            .find(input => !/^\d{2}:\d{2}/.test(input.value));
+        if (emptyTime) {
+            showNotification('warning', 'Missing Time', 'Enter a time for every timestamp, or delete the ones you do not need.');
+            emptyTime.focus();
+            return;
+        }
         const [year, month, day] = newDateStr.split('-').map(Number);
 
         // Update Existing Logs
@@ -9898,7 +9993,7 @@ function handleExcelFile(event) {
             showStudentColumnMappingDialog(workbook, file.name);
         } catch (error) {
             console.error('Excel import error:', error);
-            showNotification('error', 'Import Failed', escapeHtml(error.message || 'Could not process the student file.'));
+            showNotification('error', 'Import Failed', error.message || 'Could not process the student file.');
         }
     };
     reader.onerror = () => showNotification('error', 'Import Failed', 'Failed to read the student file.');
@@ -10186,7 +10281,7 @@ function handleImportFile(event) {
         try {
             showImportDialog(normalizeImportedLogs(JSON.parse(e.target.result)), courseName);
         } catch (error) {
-            showNotification('error', 'Import Failed', escapeHtml(error.message));
+            showNotification('error', 'Import Failed', error.message);
         }
     };
     reader.onerror = () => showNotification('error', 'Import Failed', 'Failed to read the file.');
@@ -10547,7 +10642,7 @@ function updateLogsList() {
                         showNotification(
                             'warning',
                             'Justified Absence',
-                            `${escapeHtml(group.name)} was justified for this absence.`
+                            `${group.name} was justified for this absence.`
                         );
                     });
                 }
@@ -10875,13 +10970,8 @@ function showAddEntryFromLog(uid) {
                 const match = findDuplicateInDatabase({ name, email, uid: finalUid, hardwareUid: finalHardwareUid }); // Check for duplicates
 
                 if (match) {
-                    // DUPLICATE FOUND: Show the warning dialog
-                    const completeAction = async () => { // Define the callback
-                        if (isOnline) {
-                            await syncDatabaseToSheet();
-                            invalidateDatabaseCache();
-                            await fetchDatabaseFromSheet();
-                        }
+                    // DUPLICATE FOUND: the warning dialog saves the choice and reloads the list.
+                    const completeAction = () => {
                         window.buildUIDToPrimaryUidMap();
                         updateUI();
                     };
@@ -10915,7 +11005,7 @@ function showAddEntryFromLog(uid) {
         } catch (error) {
             showNotification('error', 'Submission Failed', error.message);
             confirmBtn.disabled = false;
-            confirmBtn.innerHTML = 'Add Student'; // Reset button text
+            confirmBtn.innerHTML = '<i class="fa-solid fa-check"></i> Add Student';
         }
     });
 }
@@ -10923,8 +11013,15 @@ function showAddEntryFromLog(uid) {
 /**
  * Update the database list in the UI.
  */
+// Staff cards are merged into databaseMap so scans show their names, but they
+// are managed in Settings → Staff and have no row in the students table.
+function studentEntries() {
+    return Object.entries(databaseMap).filter(([, data]) => data && !data.isStaff);
+}
+
 function updateDatabaseList() {
-    const entries = Object.entries(databaseMap).filter(([dbKey, data]) => {
+    const students = studentEntries();
+    const entries = students.filter(([dbKey, data]) => {
         if (!dbFilter) return true;
         const searchFilter = dbFilter.toLowerCase();
         const hasIdMatch = (data.uids || []).some(id => String(id).toLowerCase().includes(searchFilter));
@@ -10965,17 +11062,26 @@ function updateDatabaseList() {
     const paginatedEntries = entries.slice(startIndex, endIndex);
 
     // Update count display
-    const totalCount = Object.keys(databaseMap).length;
+    const totalCount = students.length;
     if (entries.length > ITEMS_PER_PAGE) {
         dbEntryCount.textContent = `${startIndex + 1}-${Math.min(endIndex, entries.length)} of ${entries.length}`;
     } else {
-        dbEntryCount.textContent = totalCount;
+        dbEntryCount.textContent = dbFilter ? `${entries.length} of ${totalCount}` : totalCount;
     }
 
     // Render pagination controls
     renderDbPagination(dbCurrentPage, totalPages);
 
-    emptyDatabase.style.display = totalCount > 0 ? 'none' : 'block';
+    // An empty list and a search without matches need different messages.
+    if (!emptyDatabase.dataset.emptyHtml) emptyDatabase.dataset.emptyHtml = emptyDatabase.innerHTML;
+    if (totalCount === 0) {
+        emptyDatabase.innerHTML = emptyDatabase.dataset.emptyHtml;
+    } else if (entries.length === 0) {
+        emptyDatabase.innerHTML = `<i class="fa-solid fa-magnifying-glass" style="font-size: 3em; color: #ccc; margin-bottom: 10px;" aria-hidden="true"></i>
+            <p style="font-size: 1.1em; margin-bottom: 5px;">No students match "${escapeHtml(dbFilterInput.value.trim())}".</p>
+            <p style="font-size: 0.9em; color: #999;">Search by name, card ID, UID or email.</p>`;
+    }
+    emptyDatabase.style.display = entries.length > 0 ? 'none' : 'block';
     closeRowMenus();
     databaseTbody.innerHTML = '';
 
@@ -11387,7 +11493,7 @@ function renderStaffInSettings(staffList, filterText = '') {
  * Update database status indicator.
  */
 function updateDatabaseStatus() {
-    const count = Object.keys(databaseMap).length;
+    const count = studentEntries().length;
     databaseStatus.textContent = count > 0 ? `${count} registered students` : 'Not loaded';
 }
 
@@ -11452,8 +11558,9 @@ async function updateUI() {
 
     if (isAdminForCourse(currentCourse)) {
         // Admin-specific UI updates
-        clearDbBtn.disabled = Object.keys(databaseMap).length === 0;
-        exportExcelBtn.disabled = Object.keys(databaseMap).length === 0;
+        const hasStudents = studentEntries().length > 0;
+        clearDbBtn.disabled = !hasStudents;
+        exportExcelBtn.disabled = !hasStudents;
     }
 
     updateScanButtons();
@@ -11793,6 +11900,8 @@ function showNotification(type, title, message, duration = 5000) {
         return;
     }
 
+    message = String(message ?? '');
+
     // Skip User Info errors that often resolve themselves
     if (title === 'User Info Error' || message.includes('user info')) {
         return;
@@ -11846,17 +11955,20 @@ function showNotification(type, title, message, duration = 5000) {
         case 'success': icon = 'check-circle'; break;
         case 'error': icon = 'times-circle'; break;
         case 'warning': icon = 'exclamation-circle'; break;
+        case 'delete': icon = 'trash'; break;
         default: icon = 'info-circle';
     }
 
+    // Title and message are plain text: they often carry names and server errors.
+    // Line breaks ("\n") in the message are kept.
     notification.innerHTML = `
         <i class="fa-solid fa-${icon}" aria-hidden="true"></i>
-        <div class="in-page-notification-text">
-            <strong>${title}</strong><br>
-            ${message}
-        </div>
-        <button class="notification-close" title="Close" aria-label="Close notification">&times;</button>
+        <div class="in-page-notification-text"><strong></strong><br><span class="in-page-notification-message"></span></div>
+        <button type="button" class="notification-close" title="Close" aria-label="Close notification">&times;</button>
     `;
+    notification.querySelector('strong').textContent = title;
+    notification.querySelector('.in-page-notification-message').textContent = message ?? '';
+    if (type === 'error') notification.setAttribute('role', 'alert');
 
     notificationArea.appendChild(notification);
 
